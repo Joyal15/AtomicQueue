@@ -1,7 +1,6 @@
 import { NavLink, Route, Routes } from "react-router-dom";
 import type { User } from "@queueless/shared-types";
-import { useEffect, useState } from "react";
-import { getHealth } from "./lib/api";
+
 
 const sampleUser: User = {
   id: "tenant-admin",
@@ -9,24 +8,15 @@ const sampleUser: User = {
 };
 
 function App() {
-  const [health, setHealth] = useState<string>("Checking API...");
 
-  useEffect(() => {
-    getHealth()
-      .then((data) => {
-        setHealth(`API: ${data.status} | Database: ${data.database}`);
-      })
-      .catch(() => {
-        setHealth("API connection failed");
-      });
-  }, []);
+  
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
       <header className="border-b border-slate-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <div>
             <h1 className="text-xl font-semibold">QueueLess++</h1>
-            <p className="text-sm text-slate-500">{health}</p>
+            
           </div>
 
           <nav className="flex items-center gap-4 text-sm font-medium">
