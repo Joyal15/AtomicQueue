@@ -1,9 +1,11 @@
 import "dotenv/config";
 import { z } from "zod";
 
+
 const envSchema = z.object({
-  MONGODB_URI: z.string().min(1, "MONGODB_URI is required"),
-  PORT : z.coerce.number().int().positive().default(4000),
+  MONGODB_URI: z.string().min(1, 'MONGODB_URI is required'),
+  REDIS_URL: z.string().min(1, 'REDIS_URL is required'),
+  PORT: z.coerce.number().int().positive().default(4000),
 });
 
 const result = envSchema.safeParse(process.env);

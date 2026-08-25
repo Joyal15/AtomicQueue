@@ -8,6 +8,7 @@ import { logger } from './lib/logger.js';
 import { authRouter } from './modules/auth/index.js';
 import { tenantsRouter } from './modules/tenants/index.js';
 import { bookingsRouter } from './modules/bookings/index.js';
+import { checkRedisConnection } from './lib/redis.js';
 
 const app = express();
 const port = Number(env.PORT || 4000);
@@ -47,10 +48,14 @@ app.use(errorHandler)
 
 async function startServer() {
   await connectDatabase();
+  await checkRedisConnection();
+  
+
   app.listen(port, () => {
-  logger.info(`API listening on http://localhost:${port}`);
+    logger.info(`API listening on http://localhost:${port}`);
   });
 }
+
 
 startServer();
 
