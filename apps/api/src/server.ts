@@ -9,12 +9,18 @@ import { authRouter } from './modules/auth/index.js';
 import { tenantsRouter } from './modules/tenants/index.js';
 import { bookingsRouter } from './modules/bookings/index.js';
 import { checkRedisConnection } from './lib/redis.js';
+import cors from 'cors';
 
 const app = express();
 const port = Number(env.PORT || 4000);
 
 app.use(pinoHttp({logger}));
 app.use(express.json());
+app.use(
+  cors({
+    origin: env.FRONTEND_URL,
+  }),
+);
 app.use('/auth', authRouter);
 app.use('/tenants', tenantsRouter);
 app.use('/bookings', bookingsRouter);
