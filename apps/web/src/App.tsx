@@ -4,6 +4,7 @@ import type { User } from "@queueless/shared-types";
 
 const sampleUser: User = {
   id: "tenant-admin",
+  email: "owner@example.com",
   role: "owner",
 };
 

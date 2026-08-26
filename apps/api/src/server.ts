@@ -5,11 +5,9 @@ import { connectDatabase, isDatabaseConnected} from './lib/db.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import {pinoHttp} from 'pino-http';
 import { logger } from './lib/logger.js';
-import { authRouter } from './modules/auth/index.js';
-import { tenantsRouter } from './modules/tenants/index.js';
-import { bookingsRouter } from './modules/bookings/index.js';
 import { checkRedisConnection } from './lib/redis.js';
 import cors from 'cors';
+import routes from './routes.js';
 
 const app = express();
 const port = Number(env.PORT || 4000);
@@ -21,9 +19,7 @@ app.use(
     origin: env.FRONTEND_URL,
   }),
 );
-app.use('/auth', authRouter);
-app.use('/tenants', tenantsRouter);
-app.use('/bookings', bookingsRouter);
+app.use(routes);
 
 app.get('/health', (_req, res) => {
   const databaseConnected = isDatabaseConnected();
