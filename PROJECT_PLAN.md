@@ -9,7 +9,7 @@ Living tracker for how we take this from current state to a demo-ready product. 
 
 ---
 
-## 0. Where we actually are right now (2026-08-26)
+## 0. Where we actually are right now (2026-08-28)
 
 Audited against the actual repo, not assumed:
 
@@ -30,7 +30,7 @@ Audited against the actual repo, not assumed:
 | Routing wired into `App.tsx` | ❌ Not done (react-router-dom is installed but unused) |
 | `packages/shared-types` | ⚠️ Placeholder only (`User { id, role }`) |
 
-**Bottom line:** infra is real and solid — that's not wasted work, it's the correct foundation. But we're at the very start of Phase 1: zero business logic exists on either side yet.
+**Bottom line:** infra is real and solid, and — updated from the original audit above — Phase 1's foundation-conventions work is now also done (shared-types barrel including `resource.ts`, the `/api`-mounted routes barrel, session env vars, the `tenants` model-folder convention, and the frontend's typed `{data}`/`{error}` fetch wrapper all verified present in the repo; see Phase 1's checklist below). Zero *business logic* still exists — `auth.service.ts`, `tenants.service.ts`, `bookings.service.ts` remain stubs — that's Phase 2's work, next.
 
 ---
 
@@ -70,22 +70,22 @@ These are the only places both of you will edit, so treat them with a little ext
 This is the leftover setup work that the independence principle above depends on. It's small and mostly mechanical, so rather than pairing on all of it, it's split individually below — the only thing that actually needs agreement, not joint work, is the two conventions called out at the bottom, and those are quick to settle async (a message, not a meeting).
 
 **Peter 1**
-- [ ] Set up the `packages/shared-types/src/` barrel structure — create `index.ts` re-exporting per-domain files, and create `user.ts` (his own domain going forward)
-- [ ] Create `apps/api/src/routes.ts` barrel and wire it into `server.ts` **mounted under `/api`** (`app.use('/api', routes)`) — `/health` stays unprefixed, outside this barrel entirely (architecture doc §13a/§14). Empty barrel is fine at this point — each track adds its own mount line later, but the `/api` prefix is established now so nobody has to retrofit it after routes already exist
-- [ ] Add session/cookie env vars (e.g. `SESSION_COOKIE_SECRET`, `SESSION_TTL_SECONDS`) to `env.ts` — needed before real `auth` work starts. Staff/owner auth is server-side Redis sessions behind an `HttpOnly` cookie, NOT JWT (architecture doc Section 9) — no `JWT_SECRET`/`JWT_EXPIRES_IN` vars are needed.
+- [x] Set up the `packages/shared-types/src/` barrel structure — create `index.ts` re-exporting per-domain files, and create `user.ts` (his own domain going forward) — *verified in repo: `index.ts` re-exports `user`/`business`/`service`/`resource`/`providerAvailability`; `user.ts` matches the locked `role: 'owner'|'staff'` model*
+- [x] Create `apps/api/src/routes.ts` barrel and wire it into `server.ts` **mounted under `/api`** (`app.use('/api', routes)`) — `/health` stays unprefixed, outside this barrel entirely (architecture doc §13a/§14). Empty barrel is fine at this point — each track adds its own mount line later, but the `/api` prefix is established now so nobody has to retrofit it after routes already exist — *verified in repo: `routes.ts` mounts `auth`/`tenants`/`bookings`; `server.ts` does `app.use('/api', routes)`; `/health` is separate and unprefixed*
+- [x] Add session/cookie env vars (e.g. `SESSION_COOKIE_SECRET`, `SESSION_TTL_SECONDS`) to `env.ts` — needed before real `auth` work starts. Staff/owner auth is server-side Redis sessions behind an `HttpOnly` cookie, NOT JWT (architecture doc Section 9) — no `JWT_SECRET`/`JWT_EXPIRES_IN` vars are needed. — *verified in repo: both vars present in `env.ts` and `.env.example`, no JWT vars anywhere*
 
 **Peter 3**
-- [ ] Create `business.ts`, `service.ts`, `resource.ts`, `providerAvailability.ts` stub files in `shared-types/src/` (his own domains going forward), and add their `export *` lines to Peter 1's `index.ts` barrel — `providerAvailability.ts` (not `staffAvailability.ts`) matches the architecture doc's actual model: it's a shared template shape for BOTH staff and resource providers (turf/room/equipment), not staff-only (see architecture doc Section 2/2a)
-- [ ] Set the Mongoose model convention by example: build out the `tenants` module's folder shape first (`modules/tenants/tenants.model.ts` co-located, not a shared `models/` folder) so Peter 1 can mirror it in `auth`
+- [x] Create `business.ts`, `service.ts`, `resource.ts`, `providerAvailability.ts` stub files in `shared-types/src/` (his own domains going forward), and add their `export *` lines to Peter 1's `index.ts` barrel — `providerAvailability.ts` (not `staffAvailability.ts`) matches the architecture doc's actual model: it's a shared template shape for BOTH staff and resource providers (turf/room/equipment), not staff-only (see architecture doc Section 2/2a) — *verified in repo: all four files present and exported; `resource.ts` was the one missing file, added and wired into the barrel (build verified clean)*
+- [x] Set the Mongoose model convention by example: build out the `tenants` module's folder shape first (`modules/tenants/tenants.model.ts` co-located, not a shared `models/` folder) so Peter 1 can mirror it in `auth` — *verified in repo: `modules/tenants/` has `tenants.model.ts` co-located with `.controller.ts`/`.service.ts`/`.routes.ts`/`index.ts` — the example exists. Mirroring it into `auth` itself is Phase 2's `User` schema work, not required to close this item.*
 
 **Peter 2 (AI)**
-- [ ] Set up a typed fetch wrapper in `lib/api.ts` (base URL, error handling, JSON parsing) that both backend tracks' endpoints will plug into once they exist
+- [x] Set up a typed fetch wrapper in `lib/api.ts` (base URL, error handling, JSON parsing) that both backend tracks' endpoints will plug into once they exist — *verified in repo: `apps/web/src/lib/api.ts` implements the locked `{data}`/`{error}` contract directly (§13), with relative `/api/...` paths per the same-origin deployment decision (§14) — this already supersedes the original "base URL" framing, correctly*
 
 **Decide async, no meeting needed (drop a message, agree, move on):**
-- Response-shape convention — already settled, not open: `{ data }` on success / `{ error: { code, message, ...} }` on failure, per architecture doc Section 13. Peter 2's fetch wrapper should just implement this directly.
-- Confirm the model-convention-by-example from Peter 3's `tenants` module works for Peter 1 before both build on it in Phase 2
+- Response-shape convention — already settled, not open: `{ data }` on success / `{ error: { code, message, ...} }` on failure, per architecture doc Section 13. Peter 2's fetch wrapper should just implement this directly. **✅ Done — implemented, not just agreed.**
+- Confirm the model-convention-by-example from Peter 3's `tenants` module works for Peter 1 before both build on it in Phase 2. **⏳ Not verifiable from the repo — this is a conversation between the two of you, not a code artifact. Have it before starting Phase 2's `User` schema, then this is closed.**
 
-**Exit criteria:** both backend people can create a new module folder, add a router to `routes.ts`, add a type to `shared-types`, and start writing logic without needing to touch the other's files.
+**Exit criteria:** both backend people can create a new module folder, add a router to `routes.ts`, add a type to `shared-types`, and start writing logic without needing to touch the other's files. **Met, code-wise** — the one remaining item is the human confirmation step directly above, not a build gap.
 
 ---
 
@@ -225,8 +225,8 @@ Update checkboxes as work lands — this file is the source of truth for "what p
 
 | Phase | Status | Completed |
 |---|---|---|
-| Phase 1 — Foundation conventions | 🔴 Not started | — |
-| Phase 2 — Foundations (auth/tenant/staff/service) | ⚪ Blocked on Phase 1 | — |
+| Phase 1 — Foundation conventions | 🟡 Code complete — pending the two Peters' "model-convention works" sync (see above) | 2026-08-28 (code), sync pending |
+| Phase 2 — Foundations (auth/tenant/staff/service) | 🟢 Ready to start | — |
 | Phase 3 — Core booking engine | ⚪ Blocked on Phase 2 | — |
 | Phase 4 — Reschedule/cancel/notifications/AI | ⚪ Blocked on Phase 3 | — |
 | Phase 5 — Polish & demo prep | ⚪ Blocked on Phase 4 | — |
