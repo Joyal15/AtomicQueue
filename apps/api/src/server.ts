@@ -1,5 +1,4 @@
 import express from 'express';
-import { validate } from './middleware/validate.js';
 import { env } from './lib/env.js';
 import { connectDatabase, isDatabaseConnected} from './lib/db.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -19,7 +18,7 @@ app.use(
     origin: env.FRONTEND_URL,
   }),
 );
-app.use(routes);
+app.use('/api', routes);
 
 app.get('/health', (_req, res) => {
   const databaseConnected = isDatabaseConnected();
@@ -33,17 +32,6 @@ app.get('/health', (_req, res) => {
 //test1
 // app.get('/test-error', (_req, _res) => {
 //   throw new Error('Test error');
-// });
-
-//test2
-// const testSchema = z.object({
-//   name: z.string().min(1),
-// });
-// app.post('/test-validation', validate(testSchema), (req, res) => {
-//   res.json({
-//     status: 'ok',
-//     data: req.body,
-//   });
 // });
 
 app.use(errorHandler)

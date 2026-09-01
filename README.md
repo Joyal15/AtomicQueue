@@ -86,9 +86,11 @@ cp .env.example apps/api/.env
 |---|---|
 | `MONGODB_URI` | MongoDB Atlas connection string |
 | `REDIS_URL` | Upstash Redis TCP connection URL |
+| `SESSION_COOKIE_SECRET` | Signs/verifies the staff/owner session cookie — auth is server-side Redis sessions (opaque ID, `HttpOnly` cookie), never JWT (architecture doc Section 9); auth module is not implemented yet, `auth` is a status-only skeleton |
+| `FRONTEND_URL` | CORS origin (`apps/api/src/server.ts`) for the frontend dev server. Only matters in local dev, where the frontend runs as its own Vite process on a different port than the API — under the locked production deployment (architecture doc Section 14), frontend and backend are served from one origin and no cross-origin request ever happens |
 
 These are validated at startup with Zod (`apps/api/src/lib/env.ts`) — the
-process exits immediately if either is missing.
+process exits immediately if any is missing.
 
 ### Present in `.env.example` but not yet used by any code
 
@@ -96,10 +98,15 @@ process exits immediately if either is missing.
 |---|---|
 | `PORT` | Optional override; defaults to `4000` if unset (not currently required) |
 | `NODE_ENV` | Not currently read by any code |
-| `JWT_SECRET` | Auth module (JWT is not implemented yet — `auth` is a status-only skeleton) |
+| `SESSION_TTL_SECONDS` | Session sliding-idle-timeout duration (defaults to 604800s / 7 days per Section 9 if unset — not currently required) |
 | `GEMINI_API_KEY` | Planned AI no-show scoring (Phase 3, not implemented) |
 | `EMAIL_API_KEY` | Planned notification system (Phase 3, not implemented) |
-| `VITE_API_URL` | Planned frontend API client (not implemented — the frontend does not yet call the backend) |
+
+**No frontend-side API base-URL variable exists.** The frontend calls the API via relative
+`/api/...` paths (`apps/web/src/lib/api.ts`), which resolve correctly in both environments:
+in production the API and the built frontend share one origin (Section 14), and in local
+dev Vite's dev-server proxy (`apps/web/vite.config.ts`) forwards `/api/*` to the backend.
+There is no `VITE_API_URL` or equivalent to configure.
 
 ## Installation
 
@@ -112,6 +119,13 @@ npm install
 This installs and links all workspaces (`apps/*`, `packages/*`) in one step.
 
 ## Running Locally
+
+All backend routes are mounted under `/api` (e.g. `/api/auth/...`,
+`/api/tenants/...`, `/api/bookings/...`); `/health` stays unprefixed. The
+frontend calls these via relative `/api/...` paths — Vite's dev-server proxy
+(`apps/web/vite.config.ts`) forwards them to the backend, so both apps need
+to be running together locally (see below), same as they'll share one origin
+in production (Section 14 of the architecture doc).
 
 Run everything in parallel via Turborepo from the root:
 

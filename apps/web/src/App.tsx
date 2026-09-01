@@ -6,6 +6,7 @@ const sampleUser: User = {
   id: "tenant-admin",
   email: "owner@example.com",
   role: "owner",
+  businessId: "sample-business",
 };
 
 function App() {

@@ -47,7 +47,7 @@ This means Peter 1 and Peter 3 are almost never touching the same file, which is
 | Track | Owner | Modules |
 |---|---|---|
 | **Booking Track** — the customer-facing journey: sign in, book, hold, confirm, reschedule, cancel, waitlist, no-show risk | **Peter 1** | `auth`, `bookings`, `waitlist`, AI no-show scoring |
-| **Platform Track** — business setup and the plumbing that supports it | **Peter 3** | `tenants`, `staff`, `services`, `availability`, `realtime`, `notifications` |
+| **Platform Track** — business setup and the plumbing that supports it | **Peter 3** | `tenants`, `staff`, `providers`, `services`, `availability`, `realtime`, `notifications` |
 
 Why split this way rather than "backend logic vs. infra logic": each track is a coherent story a person can hold in their head end-to-end. Peter 1's track is "what a booking goes through, start to finish." Peter 3's track is "what a business owner sets up, and the machinery that turns that setup into bookable slots and outbound messages." Neither needs to deeply understand the other's internals to build against their exported interface — which is exactly what a real interview answer about module boundaries should sound like.
 
@@ -55,10 +55,11 @@ Why split this way rather than "backend logic vs. infra logic": each track is a 
 
 These are the only places both of you will edit, so treat them with a little extra care — small commits, pull before you push, and if you do collide it's a one-line rebase, not a real conflict:
 
-1. **`packages/shared-types/src/`** — split into **one file per domain type** (`user.ts`, `business.ts`, `service.ts`, `staffAvailability.ts`, `slot.ts`, `booking.ts`, `waitlistEntry.ts`), each edited only by that type's owning track, with a single `index.ts` barrel that just re-exports. You're each adding a new `export * from './x'` line to `index.ts` on different lines — effectively never conflicts.
-2. **`apps/api/src/routes.ts`** (new, to be created in Phase 1 below) — a barrel file where each module exports its own Express router and this file just imports + mounts them. Same shape as (1): each of you adds one import line and one mount line. Keeps `server.ts` itself untouched by either of you after initial setup.
+1. **`packages/shared-types/src/`** — split into **one file per domain type** (`user.ts`, `business.ts`, `service.ts`, `resource.ts`, `providerAvailability.ts`, `slot.ts`, `booking.ts`, `waitlistEntry.ts`), each edited only by that type's owning track, with a single `index.ts` barrel that just re-exports. You're each adding a new `export * from './x'` line to `index.ts` on different lines — effectively never conflicts.
+2. **`apps/api/src/routes.ts`** (new, to be created in Phase 1 below) — a barrel file where each module exports its own Express router and this file just imports + mounts them. Same shape as (1): each of you adds one import line and one mount line. Keeps `server.ts` itself untouched by either of you after initial setup. Name every route per architecture doc **§13a**'s route reference table — it's the canonical method/path list, not something either track should invent independently.
 3. **RBAC / businessId-scoping middleware** — lives in `auth` (Peter 1's), exported for Peter 3's routes to apply. Peter 3 imports and uses it, never edits it. If it needs to change, that's a quick message to Peter 1, not a direct edit.
 4. **`.env` / `env.ts`** — additive only (new vars appended), practically conflict-free by nature.
+5. **Signup (business + owner creation, architecture doc Section 4d)** — the one operation that genuinely spans both tracks' models in a single transaction. **Peter 1 owns and writes `POST /api/auth/signup`** (architecture doc §13a's route reference — it results in a session, so it lives in `auth`), but the transaction must insert both a `Business` doc and a `User` doc together. Resolve this the same way the module-boundary rule resolves everything else: Peter 3's `tenants` module exports a `createBusinessDoc(data, { session })`-shaped function that accepts an optional Mongoose session and performs the insert using its own model — Peter 1's signup handler opens the `session.withTransaction(...)`, calls that exported function plus its own `User` insert inside it, and neither track ever reaches into the other's model directly. Agree on that function's exact signature before either side builds against it — a 5-minute conversation, not a design meeting.
 
 ---
 
@@ -70,18 +71,18 @@ This is the leftover setup work that the independence principle above depends on
 
 **Peter 1**
 - [ ] Set up the `packages/shared-types/src/` barrel structure — create `index.ts` re-exporting per-domain files, and create `user.ts` (his own domain going forward)
-- [ ] Create `apps/api/src/routes.ts` barrel and wire it into `server.ts` (empty barrel is fine — each track adds its own mount line later)
-- [ ] Add JWT env vars (`JWT_SECRET`, `JWT_EXPIRES_IN`) to `env.ts` — needed before real `auth` work starts
+- [ ] Create `apps/api/src/routes.ts` barrel and wire it into `server.ts` **mounted under `/api`** (`app.use('/api', routes)`) — `/health` stays unprefixed, outside this barrel entirely (architecture doc §13a/§14). Empty barrel is fine at this point — each track adds its own mount line later, but the `/api` prefix is established now so nobody has to retrofit it after routes already exist
+- [ ] Add session/cookie env vars (e.g. `SESSION_COOKIE_SECRET`, `SESSION_TTL_SECONDS`) to `env.ts` — needed before real `auth` work starts. Staff/owner auth is server-side Redis sessions behind an `HttpOnly` cookie, NOT JWT (architecture doc Section 9) — no `JWT_SECRET`/`JWT_EXPIRES_IN` vars are needed.
 
 **Peter 3**
-- [ ] Create `business.ts`, `service.ts`, `staffAvailability.ts` stub files in `shared-types/src/` (his own domains going forward), and add their `export *` lines to Peter 1's `index.ts` barrel
+- [ ] Create `business.ts`, `service.ts`, `resource.ts`, `providerAvailability.ts` stub files in `shared-types/src/` (his own domains going forward), and add their `export *` lines to Peter 1's `index.ts` barrel — `providerAvailability.ts` (not `staffAvailability.ts`) matches the architecture doc's actual model: it's a shared template shape for BOTH staff and resource providers (turf/room/equipment), not staff-only (see architecture doc Section 2/2a)
 - [ ] Set the Mongoose model convention by example: build out the `tenants` module's folder shape first (`modules/tenants/tenants.model.ts` co-located, not a shared `models/` folder) so Peter 1 can mirror it in `auth`
 
 **Peter 2 (AI)**
 - [ ] Set up a typed fetch wrapper in `lib/api.ts` (base URL, error handling, JSON parsing) that both backend tracks' endpoints will plug into once they exist
 
 **Decide async, no meeting needed (drop a message, agree, move on):**
-- Response-shape convention (e.g. `{ data }` vs `{ error }` envelope) — needed before Peter 2 builds the fetch wrapper above, so settle this first
+- Response-shape convention — already settled, not open: `{ data }` on success / `{ error: { code, message, ...} }` on failure, per architecture doc Section 13. Peter 2's fetch wrapper should just implement this directly.
 - Confirm the model-convention-by-example from Peter 3's `tenants` module works for Peter 1 before both build on it in Phase 2
 
 **Exit criteria:** both backend people can create a new module folder, add a router to `routes.ts`, add a type to `shared-types`, and start writing logic without needing to touch the other's files.
@@ -92,15 +93,19 @@ This is the leftover setup work that the independence principle above depends on
 **Goal:** a business owner can register, log in, create their business, add services and staff. No booking logic yet.
 
 **Peter 1 — Booking Track**
-- [ ] `User` schema + `auth` module: register/login, password hashing, JWT issuance
-- [ ] RBAC middleware (owner/staff/customer) + businessId-scoping middleware — exported for Peter 3 to use
+- [ ] `User` schema + `auth` module: register/login, bcryptjs password hashing (cost 12), Redis-backed session issuance (opaque session ID in an `HttpOnly` cookie — not JWT, architecture doc Section 9). Signup is the shared-touchpoint transaction described above (item 5), not a standalone insert.
+- [ ] Session security details, itemized so none of them get silently skipped: `passwordChangedAt` written in the *same* document update as `passwordHash` on every password change; `sessionsInvalidatedAt` + a "log out everywhere" endpoint that stamps it (independent of a password change); every authenticated request re-reading `role`/`businessId`/`status` fresh from Mongo, never cached on the session; a fresh session ID minted on every login (never reusing a pre-existing cookie value — session-fixation prevention) (architecture doc Section 9)
+- [ ] RBAC middleware (owner/staff, both session-based) + businessId-scoping middleware — exported for Peter 3 to use. Customers are a separate, magic-link-token-based auth path (architecture doc Section 9a) with no `Users.role` value of their own.
 - [ ] Publish `User` type to `shared-types/src/user.ts`
 
 **Peter 3 — Platform Track**
-- [ ] `Business` schema + `tenants` module: business creation, unique slug routing
+- [ ] `Business` schema + `tenants` module: exports the transactional-insert function signup calls into (shared touchpoint 5), plus unique slug routing
 - [ ] `Service` schema + `services` module: CRUD, businessId-scoped (uses Peter 1's scoping middleware)
-- [ ] `StaffAvailability` schema + `staff` module: staff CRUD + weekly availability template, businessId-scoped
-- [ ] Publish `Business`, `Service`, `StaffAvailability` types to their own `shared-types` files
+- [ ] `Resources` schema + CRUD (`providers` module — architecture doc Section 1's repo structure names this its own module, "Staff (people) + Resources... unified 'who/what gets booked'"; don't split it ambiguously across `staff`/`resources`): name, type, capacity, status ('active' | 'removed') — architecture doc Section 2/9c. This is a first-class, in-scope capability (turf/room/equipment bookings), not optional — must exist before any resource-provider `ProviderAvailability`/booking flow can be built.
+- [ ] **Centralized provider-validation function** (`providers` module, architecture doc §2b) — the single service function every write path that sets/changes a `providerId`/`providerType` pair must call (`ProviderAvailability` creation, slot generation, any admin edit — never re-implemented per route). Verifies, in order: (1) a document with that `_id` exists in the collection implied by `providerType`, (2) it belongs to the caller's `businessId`, (3) if `providerType:'staff'`, the referenced `Users` row is "eligible to act as a provider" (`role in {staff, owner}` and `status==='active'`) — kept as its own named predicate, not an inline RBAC check, so provider eligibility and RBAC roles can diverge later without hunting down every place they were assumed identical.
+- [ ] `ProviderAvailability` schema + `providers` module: staff CRUD + weekly availability template — the template shape is shared between staff and resource providers (`providerId` + `providerType: 'staff' | 'resource'`), not staff-only; see architecture doc Section 2/2a for the unified model this must match
+- [ ] `StaffInvitations` schema + invitation send/accept flow: owner invites by email (same token model as the customer magic link — `crypto.randomBytes(32)` → SHA-256 hash, raw value emailed once), acceptance is its own transaction (conditional accept + `User` creation together, architecture doc Section 9b) — this is what "add staff" in this phase's goal actually requires; it is not optional CRUD, it's the only path to a staff account
+- [ ] Publish `Business`, `Service`, `Resource`, `ProviderAvailability` types to their own `shared-types` files
 
 **Peter 2 (AI) — Frontend**
 - [ ] Wire up `react-router-dom` in `App.tsx` — route skeleton for public site, auth, and dashboard areas
@@ -119,21 +124,26 @@ This is the leftover setup work that the independence principle above depends on
 **Peter 1 — Booking Track**
 - [ ] `Booking` schema
 - [ ] Real `bookings` module: atomic `findOneAndUpdate` conditional write for hold → confirm (architecture doc §4) — replaces the current stub
-- [ ] Redis hold with TTL (`SET hold:slotId sessionId EX 300 NX`) (§5)
+- [ ] Staff/owner walk-in booking (§3): a *separate* legal transition, `available → confirmed` directly — the same single-document atomic conditional write as a customer claim, but skips `held` entirely (`holdVersion` stays `null` throughout, never a transaction). Sets `Booking.createdBy` to the acting staff/owner's `userId` (`null` for a normal customer self-service booking) — this is how the plan's own module boundary (§1) already distinguishes the two creation paths, don't build a second Booking-creation code path for it, reuse the confirm logic with the hold step skipped
+- [ ] Redis hold with TTL (`SET hold:slotId sessionId EX 300 NX`) (§5), plus the **claim-triggered lazy release**: when a claim's conditional write fails because the target is `held`, check Redis for that hold's key first — if missing, release conditionally scoped to the exact observed `holdVersion` (never status alone), then retry the claim unconditionally. This handles the common stale-hold case immediately; `process-hold-expiry` (Phase 4, Peter 3) is only the periodic backstop for whatever this never touches — don't build only the sweep and assume it's the whole mechanism
 - [ ] Calls into Peter 3's `realtime` module's exported emit function on state change — does not touch `realtime` internals
 - [ ] `waitlist` module: schema + trigger on slot release (calls into `bookings` exports only)
+- [ ] **Customer magic-link flow (architecture doc §9a)** — foundational, not deferrable, since Phase 4's reschedule/cancel UI depends on it: raw token (`crypto.randomBytes(32)`, base64url) generated at booking-confirmation time, only `accessTokenHash = SHA-256(token)` persisted, raw value emailed once, never logged; a token-exchange endpoint that verifies the POSTed raw token against the hash and issues a short-lived (1hr) `HttpOnly`/`Secure`/`SameSite=Strict` cookie scoped to one `bookingId`; every view/cancel/reschedule call thereafter authenticates via that cookie and routes through the *same* `cancelBooking()`/`rescheduleBooking()` functions staff/owner use, never a parallel customer path; the three time-based access tiers (before cutoff / past cutoff-before-expiry / past `accessTokenExpiresAt`) enforced live, independent of `Booking.status`; a resend endpoint with a neutral response regardless of match (enumeration resistance) and IP+contact rate limiting, defaulting to the soonest upcoming booking
 - [ ] Publish `Booking`, `WaitlistEntry` types
 
 **Peter 3 — Platform Track**
-- [ ] `Slot` schema + `availability` module: slot generation from `StaffAvailability` templates
-- [ ] Install + wire Socket.IO; `realtime` module owns the gateway, tenant-scoped rooms (`business:${businessId}`), and exports an `emitSlotUpdate()` function for `bookings` to call (§7)
+- [ ] `Slot` schema + `availability` module: slot generation from `ProviderAvailability` templates (staff and resource providers alike, including `durationMinutes` snapshotting per Slot — architecture doc Section 2). For a resource with `capacity: N`, generate N interchangeable `Slot` documents per time window, `unitIndex: 0..N-1` (staff providers always `unitIndex: 0`) — this is what makes the unique index `{businessId, providerId, providerType, datetime, unitIndex}` (§2b) and capacity-aware claiming (§4b) possible; it's not optional detail, the whole capacity model depends on it existing at generation time
+- [ ] Install + wire Socket.IO; `realtime` module owns the gateway, tenant-scoped rooms (`business:${businessId}`), and exports an `emitSlotUpdate()` function for `bookings` to call (§7). Room membership is resolved **server-side from the authenticated session at handshake/reconnect** — never from a client-supplied `businessId`/room name — otherwise a malicious client could subscribe to another tenant's room just by naming it (architecture doc Section 9)
+- [ ] Manual slot blocking (`availability` module, architecture doc §3): staff/owner directly transitions a specific `available` Slot to `blocked` — the ad-hoc "provider called in sick for the afternoon" case. Same mechanism class as a customer claim (single atomic conditional write, `{_id, status:'available'} → {status:'blocked'}`), and `blocked` stays a distinct terminal state from `cancelled` — no un-blocking a specific slot; new availability only ever comes from a future `generate-weekly-slots` run.
 - [ ] Publish `Slot` type
 
 **Peter 2 (AI) — Frontend**
 - [ ] Public booking page per business (`/b/:slug`) — service/staff/time selection, slot grid
 - [ ] Booking confirmation flow, hold countdown UI (reflects Redis TTL)
+- [ ] Customer magic-link manage page (architecture doc §9a): on load, `POST`s the raw token from the URL (body, never left as a query string) to Peter 1's exchange endpoint, then immediately scrubs it from the visible URL via `history.replaceState`; shows the booking under the three access tiers (view-only past cutoff, fully locked past expiry) — this is the page Phase 4's reschedule/cancel UI mounts inside, not a separate later concern
 - [ ] Socket.IO client integration — live slot updates on booking page + staff dashboard, no refresh
 - [ ] Staff dashboard: live bookings list, today's schedule
+- [ ] Staff-facing "book for a walk-in customer" form (§3) — same slot picker as the public page, confirms directly with no hold step
 - [ ] Waitlist opt-in UI when a slot is taken
 
 **Note on the interface between tracks:** `bookings` (Peter 1) needs slots to exist (Peter 3's `availability`) and needs to push updates (Peter 3's `realtime`). Agree on both function signatures *before* writing the implementations — a 10-minute conversation up front here saves a rewrite later. This is the one phase where the two tracks are genuinely coupled, so touch base at the start and again once each side has a working stub.
@@ -148,16 +158,23 @@ This is the leftover setup work that the independence principle above depends on
 **Peter 1 — Booking Track**
 - [ ] Reschedule as a single Mongo transaction — two-slot atomic swap (§4)
 - [ ] Cancellation flow (release slot, trigger `waitlist` notify via export)
-- [ ] AI no-show scoring: new small module, reads aggregated booking history via `bookings` exports, calls Gemini 1.5 Flash, silent fallback on failure, rate-limited to once per booking creation (§10)
+- [ ] Mark `completed` / mark `no-show` (architecture doc §3): staff/owner-only, manual, no automatic detection — a simple status-set on an already-`confirmed` Booking, terminal, no further transitions. Not exempt from the shared terminal-state guard other mutations use.
+- [ ] `waitlist-expire-check`: the delayed follow-up job scheduled by a successful `waitlist-notify` (fixed delay, e.g. 15 min) — if the slot is still available, mark the entry `expired` and recursively re-run matching for the next entry; otherwise mark `converted` (architecture doc §6). This lives in the `waitlist` module Peter 1 owns, even though the BullMQ install itself is Peter 3's task below — agree on the job-registration interface between the two of you here.
+- [ ] AI no-show scoring: new small module, **enqueued as a background job strictly after the booking-confirmation transaction commits** (same post-commit pattern as notifications — the confirm response must never wait on Gemini), reads aggregated booking history via `bookings` exports, calls Gemini 1.5 Flash, silent fallback on failure, rate-limited to once per booking creation, never recomputed on reschedule (§10)
 
 **Peter 3 — Platform Track**
 - [ ] Install BullMQ + worker process
-- [ ] `notifications` module + jobs: `send-reminder-email`, `process-hold-expiry`, `waitlist-notify`, `generate-weekly-slots` (§6)
+- [ ] `notifications` module + jobs: `send-transactional-email` (booking/cancel/reschedule — confirmation and cancellation emails), `send-reminder-email`, `process-hold-expiry`, `waitlist-notify`, `generate-weekly-slots` (§6). `send-transactional-email` carries the magic-link access token, so configure **both** `removeOnComplete` and `removeOnFail` on it — a token-carrying job's outcome must never be silently discarded on either path.
 - [ ] Email provider integration: confirmation, reminder, cancellation emails (§8)
+- [ ] Staff removal + reactivation (`staff` module, architecture doc §9b): removal is one transaction — `Users.status → 'removed'`, `ProviderAvailability` deactivated, future `available`/`held` Slots cancelled (`holdVersion` cleared on held ones); confirmed future bookings are deliberately left untouched, surfaced as a manual follow-up list, never auto-cancelled/reassigned. Reactivation is a separate explicit action, doesn't touch `passwordHash` or restore `ProviderAvailability`.
+- [ ] Resource retirement + reactivation (`resources`/`staff` module, architecture doc §9c): the **identical** transactional cascade as staff removal above, mirrored field-for-field — same effects, same "confirmed bookings preserved" rule, same reactivation semantics. Reuse the removal transaction's shape rather than writing a second version of it.
+- [ ] Service deactivation + reactivation (`services` module, architecture doc §2c): `isActive: true → false` is one transaction with four effects — `available` Slots for this service → `blocked`, `held` Slots → `cancelled` (`holdVersion` cleared), `confirmed` Slots left untouched, and `ProviderAvailability` rows for this service deactivated so nothing generates against it going forward. Same shape as staff removal/resource retirement above, not a fourth separate design. Reactivation resurrects nothing — no un-blocking specific slots, no restored `ProviderAvailability`; the owner reconfigures from scratch. `generate-weekly-slots` and the claim path both defensively re-check `Services.isActive`, not just at deactivation time.
 
 **Peter 2 (AI) — Frontend**
 - [ ] Reschedule flow UI (pick new slot, confirm swap)
 - [ ] Cancellation flow UI (customer + staff-initiated)
+- [ ] Mark completed / mark no-show controls on the staff booking-detail view (§3)
+- [ ] Manual slot-blocking control on the staff schedule/availability view, and a Service active/inactive toggle on the services list (§3/§2c) — both staff/owner-only
 - [ ] Notification status indicators on staff dashboard (e.g. "reminder sent")
 - [ ] No-show risk note on staff-facing booking detail view
 - [ ] Waitlist "slot opened up" claim flow (time-boxed)
@@ -170,12 +187,14 @@ This is the leftover setup work that the independence principle above depends on
 **Goal:** presentable, and the pitch from architecture doc §12 is rehearsed.
 
 **Peter 1 — Booking Track**
-- [ ] Re-verify RBAC checks on every `bookings`/`auth`/`waitlist` mutating route
+- [ ] Re-verify RBAC checks on every `bookings`/`auth`/`waitlist` mutating route, **and** that every response is built from the allowlist projection, never a raw document — `passwordHash`, `accessTokenHash`, `holdVersion`, session identifiers must never appear in any `bookings`/`auth` response at any tier; cross-tenant or cross-customer resource access returns 404, never 403 (architecture doc §13)
+- [ ] Login rate limiting (`auth` module, architecture doc §9): independent per-account (5 failures → 15-minute lockout, reset only by that account's own success) and per-IP Redis-backed limiters, atomic increment+check+lockout as one Redis operation. Nonexistent-account logins still run `bcrypt.compare()` against a fixed dummy hash (timing-enumeration resistance). Redis unreachable → fail closed (500), not silently disabled.
 - [ ] Script two near-simultaneous booking requests against the deployed instance to confirm the double-booking demo is reliable, not lucky
 
 **Peter 3 — Platform Track**
-- [ ] Re-verify RBAC checks on every `tenants`/`staff`/`services` mutating route; add rate limiting on the public booking endpoint
+- [ ] Re-verify RBAC checks on every `tenants`/`staff`/`services` mutating route, **and** the same response-projection/cross-principal-404 discipline as Peter 1's bullet above, for `tenants`/`staff`/`services`/`resources` responses; add rate limiting on the public booking endpoint
 - [ ] Deploy hardening: production Mongo/Redis connection settings, env var checklist
+- [ ] Wire Express to serve the built frontend (`apps/web/dist`) from the same origin as the API (architecture doc §14) — this is the actual implementation of the same-origin deployment decision, not just config: mount the frontend's static build behind the API's `/api` prefix so both are served by one process/port. This is what makes "no CORS, no CSRF middleware for MVP" true in practice, not just on paper.
 
 **Peter 2 (AI) — Frontend**
 - [ ] Visual polish: consistent spacing/typography, empty/loading/error states across all flows
