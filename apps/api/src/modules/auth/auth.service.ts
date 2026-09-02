@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
+import { createSession } from './auth.session.js';
 
 import { UserModel } from './auth.model.js';
 import { createBusiness } from '../tenants/tenants.service.js';
@@ -26,6 +27,7 @@ export interface SignupOwnerResult {
     slug: string;
     ownerId: string;
   };
+  sessionId: string;
 }
 
 const MAX_SLUG_RETRIES = 3;
@@ -142,6 +144,7 @@ export async function signupOwner(
       );
 
       await session.commitTransaction();
+      const authSession = await createSession(ownerId);
 
       return {
         user: {
@@ -153,6 +156,7 @@ export async function signupOwner(
           status: 'active',
         },
         business,
+        sessionId:authSession.sessionId,
       };
     } catch (error) {
       await session.abortTransaction();
