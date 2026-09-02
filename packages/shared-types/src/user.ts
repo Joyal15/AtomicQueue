@@ -10,3 +10,9 @@ export interface User {
   businessId: string; // every Users row belongs to exactly one business — no "null for
                        // customers" case, since customers never get a row here
 }
+
+export interface AuthenticatedUser {
+  userId: string;
+  role: UserRole;
+  businessId: string;
+}

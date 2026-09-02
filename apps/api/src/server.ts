@@ -7,12 +7,14 @@ import { logger } from './lib/logger.js';
 import { checkRedisConnection } from './lib/redis.js';
 import cors from 'cors';
 import routes from './routes.js';
+import cookieParser from 'cookie-parser';
 
 const app = express();
 const port = Number(env.PORT || 4000);
 
 app.use(pinoHttp({logger}));
 app.use(express.json());
+app.use(cookieParser());
 app.use(
   cors({
     origin: env.FRONTEND_URL,
