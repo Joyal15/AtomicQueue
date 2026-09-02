@@ -4,4 +4,5 @@ export interface Service {
   name: string;
   durationMinutes: number;
   price: number;
+  isActive: boolean;
 }
