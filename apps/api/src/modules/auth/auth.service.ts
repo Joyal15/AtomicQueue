@@ -316,3 +316,11 @@ export async function login(
 export async function logout(sessionId: string): Promise<void> {
   await deleteSession(sessionId);
 }
+
+export async function logoutEverywhere(userId: string): Promise<void> {
+  await UserModel.findByIdAndUpdate(userId, {
+    $set: {
+      sessionsInvalidatedAt: new Date(),
+    },
+  });
+}

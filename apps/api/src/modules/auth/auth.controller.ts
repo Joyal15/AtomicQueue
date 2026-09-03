@@ -1,6 +1,6 @@
 import type { RequestHandler } from 'express';
 
-import { login , logout, signupOwner } from './auth.service.js';
+import { login , logout, logoutEverywhere, signupOwner } from './auth.service.js';
 
 const SESSION_COOKIE_NAME = 'session';
 
@@ -71,6 +71,36 @@ export const logoutController: RequestHandler = async (req, res, next) => {
     if (sessionId) {
       await logout(sessionId);
     }
+
+    res.clearCookie(SESSION_COOKIE_NAME, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'strict',
+    });
+
+    res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const logoutEverywhereController: RequestHandler = async (
+  req,
+  res,
+  next,
+) => {
+  try {
+    if (!req.user) {
+      res.status(401).json({
+        error: {
+          code: 'UNAUTHENTICATED',
+          message: 'Authentication required.',
+        },
+      });
+      return;
+    }
+
+    await logoutEverywhere(req.user.userId);
 
     res.clearCookie(SESSION_COOKIE_NAME, {
       httpOnly: true,
