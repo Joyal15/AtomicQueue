@@ -1,6 +1,6 @@
 import type { RequestHandler } from 'express';
 
-import { login , signupOwner } from './auth.service.js';
+import { login , logout, signupOwner } from './auth.service.js';
 
 const SESSION_COOKIE_NAME = 'session';
 
@@ -59,6 +59,26 @@ export const loginController: RequestHandler = async (req, res, next) => {
         user: result.user,
       },
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const logoutController: RequestHandler = async (req, res, next) => {
+  try {
+    const sessionId = req.cookies?.[SESSION_COOKIE_NAME];
+
+    if (sessionId) {
+      await logout(sessionId);
+    }
+
+    res.clearCookie(SESSION_COOKIE_NAME, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'strict',
+    });
+
+    res.status(204).send();
   } catch (error) {
     next(error);
   }

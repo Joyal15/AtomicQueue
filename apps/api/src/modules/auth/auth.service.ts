@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
-import { createSession } from "./auth.session.js";
+import { createSession, deleteSession } from "./auth.session.js";
 import { UserModel } from "./auth.model.js";
 import { createBusiness } from "../tenants/tenants.service.js";
 import { AppError } from "../../lib/Apperror.js";
@@ -311,4 +311,8 @@ export async function login(
     },
     sessionId: authSession.sessionId,
   };
+}
+
+export async function logout(sessionId: string): Promise<void> {
+  await deleteSession(sessionId);
 }
