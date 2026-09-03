@@ -74,6 +74,7 @@ export const authenticate: RequestHandler = async (req, res, next) => {
     }
 
     req.user = user;
+    req.sessionId = sessionId;
 
     next();
   } catch (error) {

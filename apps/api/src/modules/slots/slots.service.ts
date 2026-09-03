@@ -25,7 +25,7 @@ import { validateProvider } from '../providers/index.js';
 import { getServiceById } from '../services/index.js';
 import { getResourceById } from '../resources/index.js';
 import { emitSlotUpdate } from '../realtime/index.js';
-import { ClientSession } from 'mongoose';
+import type { ClientSession } from 'mongoose';
 
 import { SlotModel, type SlotDocument, type SlotStatus } from './slots.model.js';
 

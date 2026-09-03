@@ -1,8 +1,20 @@
 import { Router } from 'express';
-import { getBookingsStatus } from './bookings.controller.js';
 
-const router = Router();
+import { authenticate } from '../auth/authenticate.js';
 
-router.get('/status', getBookingsStatus);
+import {
+  createBooking,
+  getBookingsStatus,
+} from './bookings.controller.js';
 
-export default router;
+const bookingsRouter = Router();
+
+bookingsRouter.get('/status', getBookingsStatus);
+
+bookingsRouter.post(
+  '/',
+  authenticate,
+  createBooking,
+);
+
+export default bookingsRouter;
