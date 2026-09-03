@@ -9,6 +9,7 @@ export {
   getAvailableSlots,
   blockSlot,
   claimSlot,
+  releaseHeldSlot,
   type GenerateSlotsOptions,
   type GenerateSlotsResult,
   type ListSlotsFilter,

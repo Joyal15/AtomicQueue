@@ -495,8 +495,21 @@ export async function blockSlot(
 }
 
 export type ClaimSlotResult =
-  | { ok: true; slotId: string; holdVersion: string }
-  | { ok: false; error: 'SLOT_NOT_AVAILABLE' };
+  | {
+      ok: true;
+      slotId: string;
+      holdVersion: string;
+    }
+  | {
+      ok: false;
+      error: 'SLOT_NOT_AVAILABLE';
+    }
+  | {
+      ok: false;
+      error: 'SLOT_HELD';
+      slotId: string;
+      holdVersion: string;
+    };
 
 /**
  * Atomically claims one available slot for (businessId, providerId,
@@ -511,10 +524,13 @@ export type ClaimSlotResult =
  * different available unit (or get SLOT_NOT_AVAILABLE once none are
  * left) with no extra locking needed.
  *
- * One error for every failure mode (no matching slot, wrong service,
- * already held/confirmed/blocked/cancelled, bad datetime) — callers
- * don't need to branch on why, just offer the waitlist / ask the
- * customer to pick another time.
+ * Returns SLOT_NOT_AVAILABLE for every failure mode (no matching
+ * slot, wrong service, confirmed/blocked/cancelled, bad datetime)
+ * except one: if the target is currently held, the caller gets
+ * SLOT_HELD with that slot's observed slotId/holdVersion, so it can
+ * attempt the claim-triggered lazy release (check Redis for that
+ * exact holdVersion's key; if it's missing, call releaseHeldSlot with
+ * it, then retry the claim) instead of giving up on a stale hold.
  */
 export async function claimSlot(
   businessId: string,
@@ -540,21 +556,107 @@ export async function claimSlot(
       datetime: parsedDatetime,
       status: 'available',
     },
-    { status: 'held', holdVersion },
+    {
+      status: 'held',
+      holdVersion,
+    },
     { new: true },
   )
     .select({ _id: 1 })
     .lean();
 
-  if (!slot) {
-    return { ok: false, error: 'SLOT_NOT_AVAILABLE' };
+  if (slot) {
+    const slotId = String(slot._id);
+
+    emitSlotUpdate(businessId, {
+      slotId,
+      status: 'held',
+    });
+
+    return {
+      ok: true,
+      slotId,
+      holdVersion,
+    };
   }
 
-  const slotId = String(slot._id);
+  const heldSlot = await SlotModel.findOne({
+    businessId,
+    providerId,
+    providerType,
+    serviceId,
+    datetime: parsedDatetime,
+    status: 'held',
+  })
+    .select({ _id: 1, holdVersion: 1 })
+    .lean();
 
-  // Best-effort push so a connected booking page drops this slot (or
-  // decrements its remaining count) immediately.
-  emitSlotUpdate(businessId, { slotId, status: 'held' });
+  if (heldSlot?.holdVersion) {
+    return {
+      ok: false,
+      error: 'SLOT_HELD',
+      slotId: String(heldSlot._id),
+      holdVersion: heldSlot.holdVersion,
+    };
+  }
 
-  return { ok: true, slotId, holdVersion };
+  return {
+    ok: false,
+    error: 'SLOT_NOT_AVAILABLE',
+  };
+}
+
+/**
+ * Releases one held slot back to available, gated on the exact
+ * holdVersion observed — never on status alone — so this can never
+ * release a hold that's already moved on (expired-then-reclaimed, or
+ * already confirmed) to a different holdVersion. This is the write
+ * side of the claim-triggered lazy release: the caller checks Redis
+ * for that holdVersion's key first, and only calls this when it's
+ * missing, then retries the claim.
+ *
+ * businessId for the realtime push is read off the matched document
+ * rather than taken as a parameter — the caller only needs to know
+ * slotId/holdVersion/its own Redis hold, not reach back into Slots'
+ * data to supply something this module already has.
+ */
+export async function releaseHeldSlot(
+  slotId: string,
+  holdVersion: string,
+): Promise<boolean> {
+  if (!Types.ObjectId.isValid(slotId)) {
+    return false;
+  }
+
+  const slot = await SlotModel.findOneAndUpdate(
+    {
+      _id: slotId,
+      status: 'held',
+      holdVersion,
+    },
+    {
+      $set: {
+        status: 'available',
+      },
+      $unset: {
+        holdVersion: 1,
+      },
+    },
+    {
+      new: false,
+    },
+  )
+    .select({ _id: 1, businessId: 1 })
+    .lean();
+
+  if (!slot) {
+    return false;
+  }
+
+  emitSlotUpdate(String(slot.businessId), {
+    slotId,
+    status: 'available',
+  });
+
+  return true;
 }
