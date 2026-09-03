@@ -3,4 +3,6 @@ export interface Business {
   name: string;
   slug: string;
   ownerId: string;
+  timezone: string;
+  cancellationCutoffMinutes: number;
 }

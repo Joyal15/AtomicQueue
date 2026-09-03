@@ -1,9 +1,9 @@
-import mongoose from 'mongoose';
-import bcrypt from 'bcryptjs';
-import { createSession } from './auth.session.js';
+import mongoose from "mongoose";
+import bcrypt from "bcryptjs";
+import { createSession } from "./auth.session.js";
 
-import { UserModel } from './auth.model.js';
-import { createBusiness } from '../tenants/tenants.service.js';
+import { UserModel } from "./auth.model.js";
+import { createBusiness } from "../tenants/tenants.service.js";
 
 export interface SignupOwnerInput {
   name: string;
@@ -17,9 +17,9 @@ export interface SignupOwnerResult {
     id: string;
     name: string;
     email: string;
-    role: 'owner';
+    role: "owner";
     businessId: string;
-    status: 'active';
+    status: "active";
   };
   business: {
     id: string;
@@ -40,15 +40,15 @@ function slugify(value: string): string {
   return value
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 function generateSlug(businessName: string): string {
   const base = slugify(businessName);
 
   if (!base) {
-    throw new Error('Business name cannot produce a valid slug');
+    throw new Error("Business name cannot produce a valid slug");
   }
 
   return `${base}-${Math.random().toString(36).slice(2, 8)}`;
@@ -56,9 +56,9 @@ function generateSlug(businessName: string): string {
 
 function isDuplicateKeyError(error: unknown): error is { code: 11000 } {
   return (
-    typeof error === 'object' &&
+    typeof error === "object" &&
     error !== null &&
-    'code' in error &&
+    "code" in error &&
     (error as { code?: unknown }).code === 11000
   );
 }
@@ -68,20 +68,24 @@ function isDuplicateSlugError(error: unknown): boolean {
     return false;
   }
 
-  if ('keyPattern' in error) {
-    const keyPattern = (error as {
-      keyPattern?: Record<string, unknown>;
-    }).keyPattern;
+  if ("keyPattern" in error) {
+    const keyPattern = (
+      error as {
+        keyPattern?: Record<string, unknown>;
+      }
+    ).keyPattern;
 
     if (keyPattern?.slug) {
       return true;
     }
   }
 
-  if ('keyValue' in error) {
-    const keyValue = (error as {
-      keyValue?: Record<string, unknown>;
-    }).keyValue;
+  if ("keyValue" in error) {
+    const keyValue = (
+      error as {
+        keyValue?: Record<string, unknown>;
+      }
+    ).keyValue;
 
     if (keyValue?.slug) {
       return true;
@@ -125,9 +129,9 @@ export async function signupOwner(
             passwordHash,
             passwordChangedAt: new Date(),
             sessionsInvalidatedAt: null,
-            role: 'owner',
+            role: "owner",
             businessId,
-            status: 'active',
+            status: "active",
           },
         ],
         { session },
@@ -139,6 +143,8 @@ export async function signupOwner(
           name: input.businessName,
           slug,
           ownerId,
+          timezone: "UTC",
+          cancellationCutoffMinutes: 60,
         },
         session,
       );
@@ -151,20 +157,17 @@ export async function signupOwner(
           id: ownerId,
           name: input.name,
           email: normalizedEmail,
-          role: 'owner',
+          role: "owner",
           businessId,
-          status: 'active',
+          status: "active",
         },
         business,
-        sessionId:authSession.sessionId,
+        sessionId: authSession.sessionId,
       };
     } catch (error) {
       await session.abortTransaction();
 
-      if (
-        isDuplicateSlugError(error) &&
-        attempt < MAX_SLUG_RETRIES - 1
-      ) {
+      if (isDuplicateSlugError(error) && attempt < MAX_SLUG_RETRIES - 1) {
         continue;
       }
 
@@ -174,6 +177,5 @@ export async function signupOwner(
     }
   }
 
-  throw new Error('Unable to create business after slug retry limit');
+  throw new Error("Unable to create business after slug retry limit");
 }
-
