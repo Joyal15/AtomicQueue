@@ -1,7 +1,10 @@
 import type { RequestHandler } from 'express';
 
-export const getTenantsStatus: RequestHandler = (_req, res) => {
+export const getTenantsStatus: RequestHandler = (req, res) => {
   res.json({
-    data: { module: 'tenants', status: 'skeleton' },
+    data: {
+      module: 'tenants',
+      status: 'skeleton',
+    },
   });
 };

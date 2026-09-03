@@ -1,5 +1,6 @@
 import type { ErrorRequestHandler } from 'express';
 import { logger } from '../lib/logger.js';
+import { AppError } from '../lib/Apperror.js';
 
 export const errorHandler: ErrorRequestHandler = (
   err,
@@ -8,6 +9,16 @@ export const errorHandler: ErrorRequestHandler = (
   _next
 ) => {
   logger.error(err, "Unhandled application error");
+
+  if (err instanceof AppError) {
+    res.status(err.statusCode).json({
+      error: {
+        code: err.code,
+        message: err.message,
+      },
+    });
+    return;
+  }
 
   // Locked contract (architecture doc Section 13 / Decision #18): a 500 body is always
   // this fixed generic shape — the real error goes to the log line above only, never

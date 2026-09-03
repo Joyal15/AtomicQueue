@@ -1,9 +1,9 @@
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import { createSession } from "./auth.session.js";
-
 import { UserModel } from "./auth.model.js";
 import { createBusiness } from "../tenants/tenants.service.js";
+import { AppError } from "../../lib/Apperror.js";
 
 export interface SignupOwnerInput {
   name: string;
@@ -95,6 +95,26 @@ function isDuplicateSlugError(error: unknown): boolean {
   return false;
 }
 
+function isDuplicateEmailError(error: unknown): boolean {
+  if (!isDuplicateKeyError(error)) return false;
+
+  if ('keyPattern' in error) {
+    const keyPattern = (error as { keyPattern?: Record<string, unknown> })
+      .keyPattern;
+
+    if (keyPattern?.email) return true;
+  }
+
+  if ('keyValue' in error) {
+    const keyValue = (error as { keyValue?: Record<string, unknown> })
+      .keyValue;
+
+    if (keyValue?.email) return true;
+  }
+
+  return false;
+}
+
 /**
  * Create an owner account and its Business atomically.
  *
@@ -167,6 +187,13 @@ export async function signupOwner(
     } catch (error) {
       await session.abortTransaction();
 
+      if (isDuplicateEmailError(error)) {
+        throw new AppError(
+          409,
+          'EMAIL_ALREADY_EXISTS',
+          'An account with that email already exists.',
+        );
+      }
       if (isDuplicateSlugError(error) && attempt < MAX_SLUG_RETRIES - 1) {
         continue;
       }
