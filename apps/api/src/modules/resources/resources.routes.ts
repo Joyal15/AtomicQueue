@@ -13,12 +13,7 @@ import {
 const router = Router();
 
 /**
- * Resource routes.
- *
- * Every route requires an authenticated session — `authenticate`
- * (the `auth` module) populates `req.user` from a fresh Mongo read
- * before any controller here runs, so `req.user.businessId` is
- * always the authenticated user's own business.
+ * Every route below requires an authenticated session.
  */
 router.use(authenticate);
 

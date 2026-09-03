@@ -20,12 +20,9 @@ interface LoginResponse {
 /**
  * Owner/staff login — POST /api/auth/login.
  *
- * NOTE: this endpoint doesn't exist on the backend yet (Peter 1's Phase 2
- * checklist — only /api/auth/signup is built so far). This form is wired
- * against the shape signup already uses ({email, password} in, {user,
- * business} out) since that's the only reasonable contract to assume —
- * it will start working with zero frontend changes the moment /login
- * ships. Until then this correctly shows a clean error, not a crash.
+ * The endpoint doesn't exist on the backend yet, so this shows a clean
+ * error until then. It's wired to the same {email, password} in /
+ * {user, business} out shape signup uses, so it'll work once /login ships.
  */
 export function LoginPage() {
   const navigate = useNavigate()

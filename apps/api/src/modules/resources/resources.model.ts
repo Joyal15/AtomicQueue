@@ -1,17 +1,8 @@
 import { Schema, model } from 'mongoose';
 
 /**
- * Represents a resource that can be booked.
- *
- * Resources are treated as providers in QueueLess++.
- *
- * Examples:
- * - Turf
- * - Room
- * - Equipment
- *
- * A resource can have a capacity greater than one when multiple
- * customers can use the same resource at the same time.
+ * A bookable resource (e.g. turf, room, equipment). Capacity greater
+ * than one means multiple customers can use it at the same time.
  */
 export interface ResourceDocument {
   businessId: string;
@@ -22,12 +13,8 @@ export interface ResourceDocument {
 }
 
 /**
- * MongoDB schema for resources.
- *
- * businessId ensures every resource belongs to a specific business.
- *
- * status allows resources to be retired without permanently
- * deleting their historical record.
+ * MongoDB schema for resources. `status` lets a resource be retired
+ * without deleting its historical record.
  */
 const resourceSchema = new Schema<ResourceDocument>(
   {
@@ -64,7 +51,7 @@ const resourceSchema = new Schema<ResourceDocument>(
 );
 
 /**
- * Mongoose model used to create and query resources.
+ * Mongoose model for resources.
  */
 export const ResourceModel = model<ResourceDocument>(
   'Resource',

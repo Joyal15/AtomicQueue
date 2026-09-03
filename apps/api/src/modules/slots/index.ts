@@ -1,21 +1,22 @@
 /**
- * Public surface of the Slots module.
- *
- * Other modules — Peter 1's future `bookings` module included — must
- * import from this barrel, never reach into `slots.model.ts` or the
- * service file directly. Deliberately NOT exported: `SlotModel` and
- * the raw Mongoose document type.
+ * Public surface of the Slots module. Other modules import from
+ * here, not from `slots.model.ts` directly.
  */
 
 export {
   generateWeeklySlots,
   listSlots,
+  getAvailableSlots,
+  blockSlot,
   type GenerateSlotsOptions,
   type GenerateSlotsResult,
   type ListSlotsFilter,
+  type GetAvailableSlotsFilter,
+  type BlockSlotError,
+  type BlockSlotResult,
 } from './slots.service.js';
 
 export type { SlotStatus } from './slots.model.js';
 
-// HTTP router, mounted under `/api/slots` by the top-level routes barrel.
+// HTTP router, mounted under `/api/slots`.
 export { default as slotsRouter } from './slots.routes.js';

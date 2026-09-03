@@ -1,9 +1,7 @@
 import type { ProviderType } from './providerAvailability.js';
 
-// 'held' and 'confirmed' are set by the future hold/claim flow (bookings
-// module), never by generate-weekly-slots — that job only ever inserts
-// 'available'. 'completed'/'no-show' are NOT Slot states; they live on
-// Booking only (architecture doc Section 2/3).
+// Newly generated slots start as 'available'; 'held'/'confirmed' are set by the
+// booking flow. 'completed'/'no-show' live on Booking, not here.
 export type SlotStatus =
   | 'available'
   | 'held'
@@ -19,11 +17,7 @@ export interface Slot {
   serviceId: string;
   /** UTC instant, ISO 8601. */
   datetime: string;
-  /**
-   * Snapshotted from Service.durationMinutes ONCE at generation time —
-   * never re-read live, and never resized by a later Service edit
-   * (architecture doc Section 2).
-   */
+  /** Snapshotted from the Service at generation time; not updated later. */
   durationMinutes: number;
   /** 0 for a staff provider; 0..capacity-1 for a resource's parallel units. */
   unitIndex: number;

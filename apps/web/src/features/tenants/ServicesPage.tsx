@@ -19,9 +19,8 @@ import { Label } from '@/components/ui/label'
 
 /**
  * Service catalog — GET/POST /api/services, DELETE /api/services/:id
- * (which deactivates, per architecture doc Section 2c — never a hard
- * delete). Owner or staff can view/create (architecture Section 9);
- * deactivation follows the same rule.
+ * (which deactivates, never a hard delete). Owner or staff can
+ * view/create/deactivate.
  */
 export function ServicesPage() {
   const { business } = useAuth()
@@ -49,11 +48,8 @@ export function ServicesPage() {
   }
 
   useEffect(() => {
-    // Defined and invoked inline (rather than calling the outer
-    // `loadServices` reference directly) so the setState calls inside
-    // it happen after an await, not synchronously in the effect body —
-    // satisfies react-hooks/set-state-in-effect, same pattern as the
-    // bootstrap effect in lib/auth-context.tsx.
+    // Wrapped so the setState calls happen after an await, not
+    // synchronously in the effect body (react-hooks/set-state-in-effect).
     async function loadOnMount() {
       await loadServices()
     }

@@ -1,17 +1,12 @@
 /**
- * HTTP controllers for the StaffInvitations flow (architecture doc §9b).
+ * HTTP controllers for the StaffInvitations flow.
  *
- * Owner-only send/list/revoke. Deliberately NOT here: accepting an
- * invitation — that creates a `User`, so it's Peter 1's endpoint, built on
- * top of this module's exported `consumeInvitation()`.
+ * Owner-only send/list/revoke. Accepting an invitation is handled
+ * elsewhere (it creates a `User`), built on this module's exported
+ * `consumeInvitation()`.
  *
- * Every handler wraps its body in try/catch + next(error): Express here is
- * ^4.21.2, which does not auto-catch a rejected promise from an async
- * handler, and there is no asyncHandler/wrapper utility in this codebase.
- * `createStaffInvitation` throws named errors for expected outcomes — an
- * unwrapped throw would become an unhandled rejection, not a clean 4xx.
- * This mirrors the one existing precedent for a throwing service function
- * under Express 4: `auth.controller.ts`'s `signupOwnerController`.
+ * Every handler wraps its body in try/catch + next(error), since Express 4
+ * does not auto-catch a rejected promise from an async handler.
  */
 
 import type { NextFunction, Request, Response } from 'express';
@@ -27,9 +22,8 @@ import {
 } from './staffInvitations.service.js';
 
 /**
- * Body schema for POST /invitations, enforced by `validate()`
- * (`middleware/validate.ts`) at the router level, before this
- * controller ever runs.
+ * Body schema for POST /invitations, enforced by `validate()` at the
+ * router level before this controller runs.
  */
 export const createStaffInvitationSchema = z.object({
   email: z
@@ -43,8 +37,7 @@ export const createStaffInvitationSchema = z.object({
  * Handles the HTTP request for inviting a staff member by email.
  *
  * businessId and invitedBy come from the authenticated owner's session,
- * never the request body — the same "tenant identity from the session
- * only" discipline every other controller in this codebase follows.
+ * never the request body.
  */
 export async function createStaffInvitationController(
   req: Request,
@@ -122,9 +115,8 @@ export async function listStaffInvitationsController(
 /**
  * Handles the HTTP request for revoking a pending staff invitation.
  *
- * 404 when the invitation doesn't exist for this business (cross-tenant
- * or genuinely missing — indistinguishable, per architecture §13); 409
- * when it exists but isn't pending (already accepted/revoked/expired).
+ * 404 when the invitation doesn't exist for this business; 409 when it
+ * exists but isn't pending (already accepted/revoked/expired).
  */
 export async function revokeStaffInvitationController(
   req: Request<{ invitationId: string }>,

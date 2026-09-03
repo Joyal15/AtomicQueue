@@ -10,9 +10,8 @@ const navItems = [
 ]
 
 /**
- * Authenticated shell: business name in the header, nav to the
- * dashboard sub-pages, sign-out. Every /dashboard/* route renders
- * inside this via <Outlet />.
+ * Authenticated shell: header with business name, nav, and sign-out.
+ * Every /dashboard/* route renders inside this.
  */
 export function DashboardLayout() {
   const { business, user, signOut } = useAuth()

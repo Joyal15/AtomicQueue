@@ -11,16 +11,7 @@ import {
 } from './services.service.js';
 
 /**
- * Handles the HTTP request for creating a new service.
- *
- * The controller gets the business ID from the authenticated user
- * and gets the service information from the request body.
- *
- * The businessId must NEVER come from the client request body because
- * that could allow a user to create a service for another business.
- *
- * The authenticated user's businessId is trusted because it was
- * established by the authentication middleware.
+ * Creates a service. businessId comes from the session, not the request body.
  */
 export async function createServiceController(
   req: Request,
@@ -41,14 +32,7 @@ export async function createServiceController(
 }
 
 /**
- * Handles the HTTP request for getting all services
- * belonging to the authenticated business.
- *
- * The business ID comes from the authenticated user's session,
- * not from the request body or query parameters.
- *
- * This ensures that a user can only retrieve services belonging
- * to their own business.
+ * Gets all services for the authenticated business.
  */
 export async function getServicesController(
   req: Request,
@@ -66,15 +50,7 @@ export async function getServicesController(
 }
 
 /**
- * Handles the HTTP request for getting one service.
- *
- * The serviceId identifies the service we want.
- *
- * The businessId comes from the authenticated user and ensures
- * that the lookup is restricted to the user's own business.
- *
- * Returns 404 when the service does not exist or does not belong
- * to the authenticated business.
+ * Gets one service by ID, scoped to the authenticated business.
  */
 export async function getServiceByIdController(
   req: Request<{ serviceId: string }>,
@@ -87,8 +63,6 @@ export async function getServiceByIdController(
     req.params.serviceId,
   );
 
-  // The service does not exist or does not belong
-  // to the authenticated user's business.
   if (!service) {
     return res.status(404).json({
       error: {
@@ -104,16 +78,7 @@ export async function getServiceByIdController(
 }
 
 /**
- * Handles the HTTP request for updating a service.
- *
- * The serviceId comes from the URL.
- *
- * The businessId comes from the authenticated user.
- *
- * The new service information comes from the request body.
- *
- * The service layer makes sure the service belongs to the
- * authenticated business before changing it.
+ * Updates a service.
  */
 export async function updateServiceController(
   req: Request<{ serviceId: string }>,
@@ -130,8 +95,6 @@ export async function updateServiceController(
     isActive: req.body.isActive,
   });
 
-  // The service either does not exist or does not belong
-  // to the authenticated user's business.
   if (!service) {
     return res.status(404).json({
       error: {
@@ -147,16 +110,8 @@ export async function updateServiceController(
 }
 
 /**
- * Handles the HTTP request for deactivating a service.
- *
- * We do not permanently delete the service. Instead, the service
- * is marked as inactive so existing bookings and slots can keep
- * their historical reference to it.
- *
- * The businessId comes from the authenticated user.
- *
- * Returns 404 if the service does not exist or does not belong
- * to the authenticated user's business.
+ * Marks a service inactive rather than deleting it, so existing
+ * bookings and slots can still reference it.
  */
 export async function deactivateServiceController(
   req: Request<{ serviceId: string }>,
@@ -169,7 +124,6 @@ export async function deactivateServiceController(
     req.params.serviceId,
   );
 
-  // The service was not found for this business.
   if (!service) {
     return res.status(404).json({
       error: {

@@ -25,12 +25,7 @@ function App() {
         </Route>
       </Route>
 
-      {/*
-        Public booking (/b/:slug) and everything else in the original
-        placeholder routing is Phase 3 scope (architecture doc §13a) —
-        not built here. Anything unmatched falls back to whichever of
-        login/dashboard is actually reachable right now.
-      */}
+      {/* Public booking and other routes aren't built yet; fall back to login or dashboard. */}
       <Route
         path="*"
         element={

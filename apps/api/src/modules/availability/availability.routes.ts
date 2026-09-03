@@ -1,15 +1,12 @@
 /**
  * HTTP router for the Availability module.
  *
- * Mounted at `/api/availability` by the top-level routes barrel
- * (`apps/api/src/routes.ts`). This file only wires paths to
- * controller functions — no business logic lives here.
+ * Mounted at `/api/availability` by the top-level routes barrel. Just
+ * wires paths to controller functions — no business logic here.
  *
- * Every route is business-scoped: the controllers read
- * `req.user.businessId` from the authenticated session and never
- * trust a businessId from the body or query. `authenticate` (the
- * `auth` module) is mounted below and populates `req.user` from a
- * fresh Mongo read before any controller here runs.
+ * Every route is business-scoped: controllers read `req.user.businessId`
+ * from the session, never from the body or query. `authenticate` runs
+ * first and populates `req.user`.
  */
 
 import { Router } from 'express';
@@ -47,8 +44,7 @@ router.get('/:availabilityId', getAvailabilityByIdController);
 router.patch('/:availabilityId', updateAvailabilityController);
 
 // DELETE /api/availability/:availabilityId
-// Hard-delete the template. Templates carry no historical value,
-// so unlike resources/services there is no soft-disable here.
+// Hard-delete the template (no soft-disable, unlike resources/services).
 router.delete('/:availabilityId', removeAvailabilityController);
 
 export default router;

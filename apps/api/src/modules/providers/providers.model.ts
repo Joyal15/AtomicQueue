@@ -1,27 +1,18 @@
 /**
  * Domain types for the Providers module.
  *
- * There is deliberately NO Mongoose model in this file. "Provider"
- * is a domain concept, not a persisted collection (architecture doc
- * Section 2, "Provider is a domain concept, not a persisted
- * collection" / Section 2b):
- *
- *   - a staff provider IS a `Users` row  (owned by the `auth` module)
- *   - a resource provider IS a `Resources` row (owned by `resources`)
- *
- * This module only resolves and unifies that polymorphic
- * `providerId` + `providerType` reference — it stores nothing of
- * its own. The file exists to hold the single read shape the
- * service layer projects both kinds into, so callers (a dashboard
- * list, the availability provider picker) work against one type.
+ * There is no Mongoose model here. "Provider" is a domain concept, not a
+ * persisted collection: a staff provider IS a `Users` row (owned by
+ * `auth`), a resource provider IS a `Resources` row (owned by
+ * `resources`). This module just resolves and unifies that polymorphic
+ * `providerId` + `providerType` reference into one shape callers can use.
  */
 
 import type { ProviderType } from '@queueless/shared-types';
 
 /**
- * The two-state lifecycle shared, field-for-field, by both provider
- * kinds — staff removal (Section 9b) and resource retirement
- * (Section 9c) are deliberately the same design.
+ * The two-state lifecycle shared by both provider kinds (staff removal
+ * and resource retirement use the same states).
  */
 export type ProviderStatus = 'active' | 'removed';
 
@@ -40,16 +31,13 @@ export interface Provider {
   name: string;
   status: ProviderStatus;
   /**
-   * Interchangeable parallel units (architecture doc Section 2 /
-   * 4b). Always 1 for a staff provider; 1..N for a resource. Kept
-   * on the projection so a picker can show "3 courts" without a
-   * second query.
+   * Interchangeable parallel units. Always 1 for a staff provider; 1..N
+   * for a resource. Lets a picker show "3 courts" without a second query.
    */
   capacity: number;
   /**
-   * `Users.role` when `providerType === 'staff'`; `null` for a
-   * resource. An owner can act as a provider without a separate
-   * staff account (Section 2 / 9).
+   * `Users.role` when `providerType === 'staff'`; `null` for a resource.
+   * An owner can act as a provider without a separate staff account.
    */
   role: 'owner' | 'staff' | null;
 }

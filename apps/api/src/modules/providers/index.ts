@@ -1,19 +1,17 @@
 /**
  * Public surface of the Providers module.
  *
- * "Provider" is a domain concept, not a collection — a staff
- * provider is a `Users` row, a resource provider is a `Resources`
- * row. This module owns two things over that polymorphic reference:
+ * "Provider" is a domain concept, not a collection — a staff provider is
+ * a `Users` row, a resource provider is a `Resources` row. This module
+ * owns:
  *
- *   - `validateProvider` — the single write-path guard every path
- *     that sets a `providerId`/`providerType` pair must call
- *     (architecture doc Section 2b), never re-checked inline.
- *   - `listProviders` — the unified read the dashboard and the
- *     availability provider picker use.
+ *   - `validateProvider` — the single guard every write path that sets a
+ *     `providerId`/`providerType` pair must call.
+ *   - `listProviders` — the unified read the dashboard and availability
+ *     provider picker use.
  *
- * Deliberately NOT exported: the underlying `UserModel` /
- * `ResourceModel`. Callers get a `ValidatedProvider` / `Provider`
- * back, never a raw document.
+ * Not exported: `UserModel` / `ResourceModel`. Callers only get back a
+ * `ValidatedProvider` / `Provider`.
  */
 
 export {

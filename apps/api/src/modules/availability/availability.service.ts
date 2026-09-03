@@ -1,24 +1,17 @@
 /**
  * Service layer for the Availability module.
  *
- * All reads and writes of `ProviderAvailability` go through here.
- * Controllers call these functions; other modules call them via
- * `./index.ts`. Nothing outside this file touches the model.
+ * All reads and writes of `ProviderAvailability` go through here. Other
+ * modules call in via `./index.ts`.
  *
  * Responsibilities:
- *   - Enforce tenant scoping — every query is filtered by the
- *     caller-supplied `businessId` (which the controller takes from
- *     the session, never the request body).
- *   - Validate the referenced `serviceId` on every write path:
- *     it must resolve to a service owned by the same business and
- *     be active (architecture doc Section 2b / 2c).
- *   - Map Mongo documents to the shared `ProviderAvailability` API
- *     type so the DB shape never leaks out of the module.
- *
- *   - Validate the referenced `providerId` / `providerType` on
- *     create by delegating to the `providers` module's centralized
- *     `validateProvider` — same-business, active, and (for staff)
- *     provider-eligible (architecture doc Section 2b).
+ *   - Enforce tenant scoping on every query via the caller-supplied
+ *     `businessId`.
+ *   - Validate the referenced `serviceId` on every write path: it must
+ *     belong to the same business and be active.
+ *   - Validate `providerId`/`providerType` on create via the `providers`
+ *     module's `validateProvider` (same-business, active, eligible).
+ *   - Map Mongo documents to the shared `ProviderAvailability` API type.
  */
 
 import { Types } from 'mongoose';
@@ -38,20 +31,17 @@ import {
 } from './availability.model.js';
 
 /**
- * Reasons a write to provider availability can be rejected before
- * it touches the database.
+ * Reasons a write to provider availability can be rejected before it
+ * touches the database.
  *
- * SERVICE_NOT_FOUND  - the serviceId does not resolve to a service
- *                      owned by the caller's business.
- * SERVICE_INACTIVE   - the service exists but has been deactivated,
- *                      so no new availability may be generated
- *                      against it (architecture doc Section 2c).
+ * SERVICE_NOT_FOUND  - serviceId doesn't resolve to a service owned by
+ *                      the caller's business.
+ * SERVICE_INACTIVE   - the service exists but is deactivated.
  * PROVIDER_NOT_FOUND / PROVIDER_REMOVED / PROVIDER_INELIGIBLE -
- *                      passed straight through from the `providers`
- *                      module's `validateProvider` (architecture
- *                      doc Section 2b).
- * AVAILABILITY_NOT_FOUND - the availability row being updated does
- *                      not exist for the caller's business.
+ *                      passed through from `providers` module's
+ *                      `validateProvider`.
+ * AVAILABILITY_NOT_FOUND - the row being updated doesn't exist for the
+ *                      caller's business.
  */
 export type AvailabilityWriteError =
   | 'SERVICE_NOT_FOUND'
@@ -62,10 +52,8 @@ export type AvailabilityWriteError =
   | 'AVAILABILITY_NOT_FOUND';
 
 /**
- * Discriminated result for the write paths that validate a
- * referenced service. The service layer never throws for these
- * expected, caller-facing outcomes — the controller maps the
- * `error` value onto the right HTTP status.
+ * Discriminated result for write paths that validate a referenced
+ * service. The controller maps the `error` value onto an HTTP status.
  */
 export type AvailabilityWriteResult =
   | { ok: true; availability: ProviderAvailability }
@@ -84,10 +72,6 @@ export interface CreateAvailabilityInput {
 
 /**
  * A hydrated availability document as read back from Mongoose.
- *
- * The mapper works off this Mongo document shape (including the
- * Mongo sub-document window type via ProviderAvailabilityDocument),
- * not the public API type, so the two contracts stay independent.
  */
 type ProviderAvailabilityRecord = ProviderAvailabilityDocument & {
   _id: Types.ObjectId;
@@ -95,9 +79,6 @@ type ProviderAvailabilityRecord = ProviderAvailabilityDocument & {
 
 /**
  * Converts a MongoDB availability document into the shared API type.
- *
- * We explicitly return only the fields required by the
- * ProviderAvailability contract.
  */
 function toProviderAvailability(
   availability: ProviderAvailabilityRecord,
@@ -117,13 +98,8 @@ function toProviderAvailability(
 }
 
 /**
- * Validates that a serviceId references a service that belongs to
- * the caller's business and is currently active.
- *
- * Returns the matching write error, or null when the service is
- * usable. Availability templates must never be created or repointed
- * against another business's service or a deactivated one
- * (architecture doc Section 2b/2c).
+ * Validates that a serviceId belongs to the caller's business and is
+ * currently active. Returns the matching write error, or null if usable.
  */
 async function validateService(
   businessId: string,
@@ -143,10 +119,9 @@ async function validateService(
 }
 
 /**
- * Guards the id-taking read/update/delete paths against a malformed
- * availabilityId. A non-ObjectId string would otherwise make the
- * Mongo query throw a CastError (surfacing as a 500) instead of the
- * intended "not found" outcome.
+ * Guards read/update/delete against a malformed availabilityId — a
+ * non-ObjectId string would otherwise throw a CastError instead of a
+ * clean "not found".
  */
 function isValidAvailabilityId(id: string): boolean {
   return Types.ObjectId.isValid(id);
@@ -155,15 +130,9 @@ function isValidAvailabilityId(id: string): boolean {
 /**
  * Creates a provider availability row for a business.
  *
- * The businessId is supplied by the authenticated user's session
- * at the controller layer, never by the client body.
- *
- * Both references are validated before the row is written:
- *   - the provider, via the `providers` module's centralized
- *     `validateProvider` (same-business, active, staff-eligible),
- *   - the service, via `validateService` (same-business, active),
- * so a template can never be generated against a provider or a
- * service the business does not own or has turned off.
+ * Validates both references before writing: the provider via
+ * `validateProvider` (same-business, active, staff-eligible) and the
+ * service via `validateService` (same-business, active).
  */
 export async function createAvailability(
   input: CreateAvailabilityInput,
@@ -267,10 +236,9 @@ export interface UpdateAvailabilityInput {
 /**
  * Updates an availability row belonging to a business.
  *
- * The query includes businessId so a row from another business
- * cannot be modified through this function. When the update
- * repoints the row at a different service, that new service is
- * validated the same way creation validates it.
+ * The query includes businessId so another business's row can't be
+ * modified. Repointing to a different service re-validates it the same
+ * way creation does.
  */
 export async function updateAvailability(
   input: UpdateAvailabilityInput,
@@ -327,8 +295,7 @@ export async function updateAvailability(
 /**
  * Permanently deletes an availability row belonging to a business.
  *
- * Availability templates carry no historical value once removed,
- * so unlike resources they are hard-deleted.
+ * Hard-deleted, unlike resources.
  */
 export async function removeAvailability(
   businessId: string,

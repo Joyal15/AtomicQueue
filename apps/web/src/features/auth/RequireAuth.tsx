@@ -3,10 +3,9 @@ import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '@/lib/use-auth'
 
 /**
- * Gate for every authenticated route. Renders a loading state while the
- * auth bootstrap (see auth-context.tsx) is checking session validity,
- * redirects to /login if it comes back unauthenticated, and otherwise
- * renders the nested route via <Outlet />.
+ * Gate for authenticated routes: shows a loading state while checking
+ * the session, redirects to /login if unauthenticated, otherwise
+ * renders the nested route.
  */
 export function RequireAuth() {
   const { status } = useAuth()

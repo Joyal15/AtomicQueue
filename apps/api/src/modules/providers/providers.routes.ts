@@ -1,22 +1,15 @@
 /**
  * HTTP router for the Providers module.
  *
- * Mounted at `/api/providers` by the top-level routes barrel
- * (`apps/api/src/routes.ts`).
+ * Mounted at `/api/providers` by the top-level routes barrel.
  *
- * Read-only by design. "Provider" has no collection of its own
- * (see `providers.model.ts`), so there is nothing to create, update
- * or delete here:
- *   - staff onboarding/removal lives in the staff invitation flow
- *     (architecture doc Section 9b),
- *   - resource create/retire lives in the `resources` module
- *     (Section 9c),
- *   - weekly availability templates live in the `availability`
- *     module.
- * This router only exposes the unified read over those.
+ * Read-only by design. "Provider" has no collection of its own, so there
+ * is nothing to create, update, or delete here — staff onboarding lives
+ * in the staff invitation flow, resource create/retire in the
+ * `resources` module, and availability templates in the `availability`
+ * module. This router only exposes the unified read over those.
  *
- * `authenticate` (the `auth` module) is mounted below and populates
- * `req.user` from a fresh Mongo read before the controller runs.
+ * `authenticate` runs first and populates `req.user`.
  */
 
 import { Router } from 'express';

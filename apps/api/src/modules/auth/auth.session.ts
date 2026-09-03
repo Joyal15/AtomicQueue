@@ -14,12 +14,7 @@ function getSessionKey(sessionId: string): string {
   return `${SESSION_KEY_PREFIX}${sessionId}`;
 }
 
-/**
- * Create a fresh authenticated session.
- *
- * The session ID is deliberately opaque and cryptographically random.
- * We never reuse a session ID supplied by the client.
- */
+/** Creates a new session with a random, cryptographically secure session ID. */
 export async function createSession(userId: string): Promise<{
   sessionId: string;
   issuedAt: number;
@@ -45,11 +40,7 @@ export async function createSession(userId: string): Promise<{
   };
 }
 
-/**
- * Retrieve an authenticated session from Redis.
- *
- * Redis is authoritative for session existence.
- */
+/** Fetches a session from Redis, or null if it doesn't exist. */
 export async function getSession(
   sessionId: string,
 ): Promise<RedisSession | null> {
@@ -62,11 +53,7 @@ export async function getSession(
   return JSON.parse(value) as RedisSession;
 }
 
-/**
- * Refresh the session's sliding idle timeout.
- *
- * Only authenticated HTTP activity should call this.
- */
+/** Resets the session's TTL (sliding idle timeout). */
 export async function refreshSession(
   sessionId: string,
 ): Promise<boolean> {
@@ -78,9 +65,7 @@ export async function refreshSession(
   return refreshed === 1;
 }
 
-/**
- * Delete a single session.
- */
+/** Deletes a single session. */
 export async function deleteSession(sessionId: string): Promise<void> {
   await redis.del(getSessionKey(sessionId));
 }

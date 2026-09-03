@@ -20,9 +20,7 @@ export const errorHandler: ErrorRequestHandler = (
     return;
   }
 
-  // Locked contract (architecture doc Section 13 / Decision #18): a 500 body is always
-  // this fixed generic shape — the real error goes to the log line above only, never
-  // the response. Never send err.message, a stack trace, or any driver-level detail here.
+  // Generic 500 response only; the real error is logged above, never sent to the client.
   res.status(500).json({
     error: {
       code: 'INTERNAL_ERROR',

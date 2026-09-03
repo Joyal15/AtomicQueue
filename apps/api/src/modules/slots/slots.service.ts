@@ -1,30 +1,17 @@
 /**
  * Service layer for the Slots module.
  *
- * `generateWeeklySlots` is the entire "generate-weekly-slots" job from
- * the architecture doc (Section 6), built as a plain callable function
- * rather than a scheduled job — there is no BullMQ/cron infra in this
- * codebase yet. A future scheduler calls this same function unchanged;
- * for now it's triggered by an owner-only HTTP endpoint
- * (`slots.controller.ts`).
- *
- * Responsibilities:
- *   - Read `ProviderAvailability` templates (architecture doc Section 2)
- *     and chop each weekly window into individual bookable `Slot`
- *     documents, one per unit of capacity for a resource provider.
- *   - Convert each template's business-local wall-clock time to a UTC
- *     instant via Luxon (DST-aware — never fixed-offset arithmetic,
- *     Section 6).
- *   - Stay idempotent on `(providerId, providerType, datetime, unitIndex)`
- *     — re-running never creates duplicates.
- *   - Re-check provider/service active status immediately before AND
- *     after inserting, with a conditional compensating delete if either
- *     went inactive mid-run (Section 6's race-safety requirement).
- *   - Never create a Slot in any status but 'available' — hold/confirm/
- *     cancel/block are all out of this module's scope.
+ * `generateWeeklySlots` reads `ProviderAvailability` templates and
+ * chops each weekly window into bookable `Slot` documents (one per
+ * capacity unit for a resource provider), converting business-local
+ * time to UTC via Luxon so DST is handled correctly. Re-running is
+ * idempotent on `(providerId, providerType, datetime, unitIndex)` —
+ * it never creates duplicates. Only ever creates slots in 'available'
+ * status; hold/confirm/cancel/block happen elsewhere.
  */
 
 import { DateTime } from 'luxon';
+import { Types } from 'mongoose';
 
 import type {
   ProviderAvailability,
@@ -38,7 +25,7 @@ import { validateProvider } from '../providers/index.js';
 import { getServiceById } from '../services/index.js';
 import { getResourceById } from '../resources/index.js';
 
-import { SlotModel, type SlotDocument } from './slots.model.js';
+import { SlotModel, type SlotDocument, type SlotStatus } from './slots.model.js';
 
 /** How far ahead a single run generates slots for, unless overridden. */
 const DEFAULT_GENERATION_DAYS = 7;
@@ -70,12 +57,9 @@ interface SlotCandidate {
 }
 
 /**
- * Chops one provider's weekly availability windows into individual
- * UTC-instant ticks across the target rolling window, sized to the
- * service's duration.
- *
- * DST-aware by construction: every wall-clock -> UTC conversion goes
- * through Luxon's zone-aware `DateTime`, never a fixed offset (Section 6).
+ * Chops one provider's weekly availability windows into UTC-instant
+ * ticks across the rolling window, sized to the service's duration.
+ * Uses Luxon's zone-aware DateTime so DST is handled correctly.
  */
 function computeCandidateTicks(params: {
   zone: string;
@@ -91,8 +75,7 @@ function computeCandidateTicks(params: {
 
   for (let offset = 0; offset < days; offset++) {
     const date = startOfToday.plus({ days: offset });
-    // Luxon weekday: 1 = Monday .. 7 = Sunday. Convert to this
-    // codebase's 0 = Sunday .. 6 = Saturday (availability.model.ts).
+    // Luxon weekday is 1=Monday..7=Sunday; convert to 0=Sunday..6=Saturday.
     const dayOfWeek = date.weekday % 7;
 
     for (const window of windows) {
@@ -135,9 +118,8 @@ function computeCandidateTicks(params: {
 }
 
 /**
- * Verifies a template's provider and service are both still usable
- * right now. Used both immediately before inserting and immediately
- * after (Section 6) — the same check, called twice around the write.
+ * Verifies a template's provider and service are both still active.
+ * Called both right before and right after inserting slots.
  */
 async function isTemplateStillGenerable(
   businessId: string,
@@ -175,12 +157,10 @@ async function resolveCapacity(
 }
 
 /**
- * Mongoose's `insertMany(docs, { ordered: false })` throws on any
- * duplicate-key failure, but (per Mongoose's documented unordered-
- * insert behavior) attaches `insertedDocs` — the subset that DID
- * succeed — to the thrown error. This lets a race against a
- * concurrent generation run degrade to "some inserted, some skipped
- * as already-existing" instead of failing the whole batch.
+ * `insertMany(docs, { ordered: false })` throws on a duplicate-key
+ * failure but attaches `insertedDocs` (the ones that succeeded) to
+ * the error, so a race with a concurrent generation run can still
+ * report partial success instead of failing the whole batch.
  */
 interface BulkWriteErrorLike {
   insertedDocs?: Array<{ _id: unknown }>;
@@ -201,7 +181,7 @@ function isBulkWriteErrorLike(error: unknown): error is BulkWriteErrorLike {
   return typeof error === 'object' && error !== null;
 }
 
-/** True only when every failure in the batch was a duplicate key — anything else must not be swallowed. */
+/** True only when every failure in the batch was a duplicate key. */
 function allWriteErrorsAreDuplicates(error: BulkWriteErrorLike): boolean {
   if (!Array.isArray(error.writeErrors) || error.writeErrors.length === 0) {
     return false;
@@ -214,12 +194,8 @@ function allWriteErrorsAreDuplicates(error: BulkWriteErrorLike): boolean {
 
 /**
  * Generates the next `options.days` (default 7) worth of bookable
- * Slots for every ProviderAvailability template in a business, from
- * right now.
- *
- * Idempotent on `(businessId, providerId, providerType, datetime,
- * unitIndex)` — safe to re-run (a retry, a manual trigger) without
- * ever creating duplicates.
+ * Slots for every ProviderAvailability template in a business.
+ * Safe to re-run — never creates duplicates.
  */
 export async function generateWeeklySlots(
   businessId: string,
@@ -229,9 +205,7 @@ export async function generateWeeklySlots(
 
   const business = await getBusinessById(businessId);
   if (!business) {
-    // A stale/malformed businessId is treated as "nothing to generate"
-    // rather than thrown — every caller already resolves businessId
-    // from a live authenticated session.
+    // Unknown businessId: nothing to generate.
     return { created: 0, skippedExisting: 0, skippedInactiveProviders: 0 };
   }
 
@@ -248,10 +222,7 @@ export async function generateWeeklySlots(
   for (const template of templates) {
     if (template.weeklyWindows.length === 0) continue;
 
-    // Pre-check (Section 6): skip this template entirely if its
-    // provider or service isn't currently active — never throws, a
-    // template going inactive between generation runs is expected,
-    // routine state, not an error.
+    // Skip this template if its provider or service isn't currently active.
     const generableBefore = await isTemplateStillGenerable(
       businessId,
       template.providerId,
@@ -265,9 +236,7 @@ export async function generateWeeklySlots(
     }
 
     const service = await getServiceById(businessId, template.serviceId);
-    // Already confirmed active and existing by isTemplateStillGenerable
-    // above; this can only be null on an impossible concurrent hard-
-    // delete, which this codebase never performs on Services.
+    // Already checked active above; null here would mean a concurrent delete.
     if (!service) {
       result.skippedInactiveProviders += 1;
       continue;
@@ -301,11 +270,8 @@ export async function generateWeeklySlots(
       }
     }
 
-    // Dedupe against slots that already exist for this provider within
-    // the candidate window — the primary idempotency mechanism
-    // (Section 6: "checks whether a Slot already exists before
-    // inserting"). The unique index below is the backstop for the
-    // remaining race, not the primary mechanism.
+    // Skip candidates that already have a slot; the model's unique
+    // index is the backstop for any remaining race.
     const existing = await SlotModel.find({
       businessId,
       providerId: template.providerId,
@@ -357,7 +323,7 @@ export async function generateWeeklySlots(
         result.created += error.insertedDocs.length;
         result.skippedExisting += docs.length - error.insertedDocs.length;
       } else if (isDuplicateKeyError(error)) {
-        // Whole batch collided; nothing inserted from this batch.
+        // Whole batch collided; nothing inserted.
         result.skippedExisting += docs.length;
       } else {
         throw error;
@@ -366,11 +332,9 @@ export async function generateWeeklySlots(
 
     if (insertedIds.length === 0) continue;
 
-    // Post-check (Section 6): if the provider or service went
-    // inactive in the narrow window between the pre-check and this
-    // insert, conditionally delete only what this run just inserted —
-    // never an unconditional delete by _id, so a slot claimed in that
-    // same instant is never destroyed.
+    // Re-check after inserting: if the provider/service went inactive
+    // mid-run, delete only the slots this run just inserted (and only
+    // if still available, so a slot claimed in that instant survives).
     const generableAfter = await isTemplateStillGenerable(
       businessId,
       template.providerId,
@@ -393,12 +357,14 @@ export async function generateWeeklySlots(
 export interface ListSlotsFilter {
   providerId?: string;
   providerType?: ProviderType;
+  serviceId?: string;
+  status?: SlotStatus;
   from?: Date;
   to?: Date;
 }
 
 /**
- * A slot as read back from Mongoose, mapped to the shared API type.
+ * Maps a slot document to the shared API type.
  */
 function toSlotApiShape(
   slot: Pick<
@@ -427,10 +393,8 @@ function toSlotApiShape(
 }
 
 /**
- * Lists slots belonging to a business, optionally narrowed by
- * provider and/or a datetime range. Mostly a verification/debugging
- * aid for this module today — a head start for whatever
- * staff-dashboard or public booking-page view needs next.
+ * Lists slots belonging to a business, optionally filtered by
+ * provider, service, status, and/or a datetime range.
  */
 export async function listSlots(
   businessId: string,
@@ -446,6 +410,14 @@ export async function listSlots(
     query.providerType = filter.providerType;
   }
 
+  if (filter.serviceId !== undefined) {
+    query.serviceId = filter.serviceId;
+  }
+
+  if (filter.status !== undefined) {
+    query.status = filter.status;
+  }
+
   if (filter.from !== undefined || filter.to !== undefined) {
     const range: Record<string, Date> = {};
     if (filter.from !== undefined) range.$gte = filter.from;
@@ -456,4 +428,63 @@ export async function listSlots(
   const slots = await SlotModel.find(query).sort({ datetime: 1 }).lean();
 
   return slots.map(toSlotApiShape);
+}
+
+export interface GetAvailableSlotsFilter {
+  providerId?: string;
+  providerType?: ProviderType;
+  serviceId?: string;
+  from?: Date;
+  to?: Date;
+}
+
+/**
+ * Returns a business's currently claimable slots (`status: 'available'`
+ * only), optionally filtered by provider/service/date-range. Thin
+ * wrapper over `listSlots`.
+ */
+export async function getAvailableSlots(
+  businessId: string,
+  filter: GetAvailableSlotsFilter = {},
+) {
+  return listSlots(businessId, { ...filter, status: 'available' });
+}
+
+export type BlockSlotError = 'SLOT_NOT_FOUND' | 'SLOT_NOT_AVAILABLE';
+
+export type BlockSlotResult =
+  | { ok: true; slot: ReturnType<typeof toSlotApiShape> }
+  | { ok: false; error: BlockSlotError };
+
+/**
+ * Manually blocks one `available` slot (e.g. a provider calling in
+ * sick), via a single atomic conditional write. `blocked` is
+ * terminal — a slot can't be unblocked, only regenerated later.
+ */
+export async function blockSlot(
+  businessId: string,
+  slotId: string,
+): Promise<BlockSlotResult> {
+  // A malformed id would otherwise throw a CastError instead of returning "not found".
+  if (!Types.ObjectId.isValid(slotId)) {
+    return { ok: false, error: 'SLOT_NOT_FOUND' };
+  }
+
+  const slot = await SlotModel.findOneAndUpdate(
+    { _id: slotId, businessId, status: 'available' },
+    { status: 'blocked' },
+    { new: true },
+  ).lean();
+
+  if (slot) {
+    return { ok: true, slot: toSlotApiShape(slot) };
+  }
+
+  // Distinguish "doesn't exist" (404) from "exists but wasn't available" (409).
+  const exists = await SlotModel.exists({ _id: slotId, businessId });
+
+  return {
+    ok: false,
+    error: exists ? 'SLOT_NOT_AVAILABLE' : 'SLOT_NOT_FOUND',
+  };
 }

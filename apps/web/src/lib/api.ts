@@ -1,13 +1,8 @@
-// Relative /api/... requests — true same-origin under the locked deployment topology
-// (architecture doc Section 14): production serves the built frontend and the API from
-// one Express origin, so a relative path just works. Local dev keeps the frontend on
-// Vite's own dev server for fast HMR; Vite's dev-server proxy (vite.config.ts) forwards
-// /api/* to the backend so the exact same relative-path calls work unchanged in both
-// environments — no VITE_API_URL/base-URL env var needed either way.
+// Uses relative /api/... requests: in production the frontend and API share
+// one origin, and in dev Vite's proxy forwards /api/* to the backend — so
+// no base-URL env var is needed either way.
 
-// Locked API response contract (architecture doc Section 13 / Decision #18) — the ONLY
-// two response shapes anywhere in this API, no other format and no compatibility layer
-// for the earlier { status: 'ok' | 'error' } shape this replaces.
+// The only two response shapes this API returns.
 interface ApiSuccessBody<T> {
   data: T
 }
@@ -16,16 +11,15 @@ interface ApiErrorBody {
   error: {
     code: string
     message: string
-    // Present on VALIDATION_ERROR only (Section 13) — field name -> safe, caller-facing detail.
+    // Only present on VALIDATION_ERROR: field name -> caller-facing detail.
     fields?: Record<string, string>
-    [key: string]: unknown // any other safe metadata the contract allows per-endpoint
+    [key: string]: unknown // any other metadata an endpoint may include
   }
 }
 
-// HTTP status is the authoritative signal (400/401/403/404/409/429/500, Section 13) —
-// carried on the thrown error as `status` so callers can branch on it (e.g. 401 -> clear
-// auth state and redirect to login, 403 -> show an in-context permission message, per
-// Section 13's explicit 401-vs-403 frontend-behavior rule) without re-parsing the body.
+// HTTP status is carried on the thrown error so callers can branch on it
+// (e.g. 401 -> redirect to login, 403 -> show a permission message)
+// without re-parsing the body.
 export class ApiRequestError extends Error {
   status: number
   code: string
@@ -69,9 +63,7 @@ export async function apiFetch<T>(
   const body: unknown = await response.json().catch(() => null)
 
   if (!response.ok) {
-    // A 500 (or any other error status) only ever carries { error: { code, message } } per
-    // the locked contract — there is nothing further to strip or hide here, the backend
-    // itself never sends stack traces/internals in the body (Section 13).
+    // An error response always carries { error: { code, message } }.
     if (isApiErrorBody(body)) {
       throw new ApiRequestError(body.error.message, response.status, body.error.code, body.error.fields)
     }

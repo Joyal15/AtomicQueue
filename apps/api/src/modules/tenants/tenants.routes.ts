@@ -23,7 +23,7 @@ router.use(authenticate);
 router.get('/status', getTenantsStatus);
 
 // GET /api/tenants — view the authenticated user's own business.
-// Owner or staff, per §9's business-wide-visibility rule.
+// Owner or staff.
 router.get('/', getMyBusinessController);
 
 // PATCH /api/tenants — owner-only partial update of name/timezone/

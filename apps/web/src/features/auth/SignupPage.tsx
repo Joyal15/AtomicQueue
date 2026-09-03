@@ -18,10 +18,8 @@ interface SignupResponse {
 }
 
 /**
- * Owner signup — POST /api/auth/signup. Creates the owner User and the
- * Business together in one transaction (architecture doc Section 4d);
- * this is the ONLY signup form — there's no separate "create business"
- * step, signup IS business creation.
+ * Owner signup — POST /api/auth/signup. Creates the owner user and the
+ * business together; there's no separate "create business" step.
  */
 export function SignupPage() {
   const navigate = useNavigate()

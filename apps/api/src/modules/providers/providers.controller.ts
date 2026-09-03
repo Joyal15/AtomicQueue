@@ -1,10 +1,8 @@
 /**
  * HTTP controllers for the Providers module.
  *
- * Thin: pull the tenant identity from the authenticated session
- * (never the body/query), delegate to the service layer, and return
- * the locked `{ data }` envelope (architecture doc Section 13). No
- * validation or persistence logic lives here.
+ * Pull the tenant identity from the session (never the body/query),
+ * delegate to the service layer, and return `{ data }`.
  */
 
 import type { Request, Response } from 'express';
@@ -20,16 +18,12 @@ const PROVIDER_TYPES: readonly ProviderType[] = ['staff', 'resource'];
 /**
  * GET /api/providers
  *
- * Lists the authenticated business's providers — staff and
- * resources — in the unified `Provider` shape. Optional query
- * params:
- *   - `type=staff|resource`   restrict to one kind (an unrecognised
- *                             value is ignored, matching the query
- *                             handling in the availability module)
- *   - `includeRemoved=true`   also return retired/removed providers,
- *                             for a management view; omitted by
- *                             default so a picker sees only bookable
- *                             providers
+ * Lists the authenticated business's providers — staff and resources —
+ * in the unified `Provider` shape. Optional query params:
+ *   - `type=staff|resource`   restrict to one kind (unrecognised value
+ *                             is ignored)
+ *   - `includeRemoved=true`   also include retired/removed providers;
+ *                             defaults to bookable-only
  */
 export async function listProvidersController(
   req: Request,

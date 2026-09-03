@@ -16,9 +16,8 @@ import { Label } from '@/components/ui/label'
 
 /**
  * Business settings — GET/PATCH /api/tenants. Viewable by owner or
- * staff (architecture doc Section 9's business-wide-visibility rule);
- * editable by owner only, enforced server-side and mirrored here so
- * staff simply don't see the edit form.
+ * staff, editable by owner only (enforced server-side; staff just
+ * don't see the edit form here).
  */
 export function DashboardOverviewPage() {
   const { business, user, refreshBusiness } = useAuth()

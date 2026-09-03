@@ -38,9 +38,8 @@ export const updateBusinessSchema = z
  * Handles the HTTP request for viewing the authenticated user's own
  * business.
  *
- * Any authenticated user (owner or staff) can view it — this mirrors
- * architecture doc Section 9's "staff has full business-wide visibility"
- * rule, so there is no owner-only restriction on the read side.
+ * Any authenticated user (owner or staff) can view it — no owner-only
+ * restriction on the read side.
  */
 export async function getMyBusinessController(
   req: Request,
@@ -73,8 +72,7 @@ export async function getMyBusinessController(
  * Handles the HTTP request for updating the authenticated business's
  * editable settings (name, timezone, cancellation cutoff).
  *
- * Owner-only — same reasoning as staff-lifecycle actions (architecture
- * doc Section 9): changing business-wide policy is an owner decision.
+ * Owner-only: changing business-wide policy is an owner decision.
  */
 export async function updateMyBusinessController(
   req: Request,

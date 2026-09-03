@@ -161,13 +161,8 @@ function isDuplicateEmailError(error: unknown): boolean {
 }
 
 /**
- * Create an owner account and its Business atomically.
- *
- * Signup is business creation. The owner User and Business must either both
- * be committed or both be rolled back.
- *
- * Auth owns the transaction and pre-generates both document IDs so that the
- * User can reference the Business before either document is inserted.
+ * Creates an owner account and its Business in one transaction (both
+ * committed or both rolled back).
  */
 export async function signupOwner(
   input: SignupOwnerInput,

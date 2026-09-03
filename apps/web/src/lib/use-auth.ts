@@ -3,11 +3,8 @@ import { useContext } from 'react'
 import { AuthContext, type AuthContextValue } from './auth-context-value'
 
 /**
- * Split into its own file (rather than living in auth-context.tsx
- * alongside the `AuthProvider` component) because
- * react-refresh/only-export-components requires a file that exports a
- * component to export *only* components — same reason
- * components/ui/badge-variants.ts is split out from badge.tsx.
+ * Split out so auth-context.tsx only exports the `AuthProvider`
+ * component (react-refresh requires that).
  */
 export function useAuth(): AuthContextValue {
   const ctx = useContext(AuthContext)

@@ -1,15 +1,10 @@
 /**
  * HTTP controllers for the Availability module.
  *
- * These are thin: each handler pulls the tenant identity from
- * `req.user.businessId` (session, never the body), reads inputs
- * from the URL / body / query, delegates to the service layer, and
- * translates the result into the locked response envelope —
- * `{ data }` on success, `{ error: { code, message, ... } }` on
- * failure (architecture doc Section 13).
- *
- * No validation or persistence logic lives here; that belongs in
- * `availability.service.ts`.
+ * Each handler pulls the tenant identity from `req.user.businessId`
+ * (session, never the body), delegates to the service layer, and returns
+ * `{ data }` on success or `{ error: { code, message, ... } }` on failure.
+ * No validation or persistence logic lives here.
  */
 
 import type { Request, Response } from 'express';
@@ -29,8 +24,7 @@ import {
  * Maps a service-layer write error onto an HTTP response.
  *
  * A bad service reference is the caller's input problem (400); a
- * missing availability row is a 404. The service layer owns the
- * validation — the controller only translates the outcome.
+ * missing availability row is a 404.
  */
 function sendWriteError(
   res: Response,
@@ -45,8 +39,8 @@ function sendWriteError(
     });
   }
 
-  // Everything else is a bad reference in the caller's own body —
-  // surface it as a 400 keyed to the offending field.
+  // Everything else is a bad reference in the caller's own body — surface
+  // it as a 400 keyed to the offending field.
   const fields: Record<string, string> = {};
 
   switch (error) {
@@ -81,9 +75,7 @@ function sendWriteError(
 /**
  * Handles the HTTP request for creating a provider availability row.
  *
- * The businessId comes from the authenticated user's session and is
- * never read from the request body, so a client cannot create
- * availability for another business.
+ * businessId comes from the session, not the request body.
  */
 export async function createAvailabilityController(
   req: Request,

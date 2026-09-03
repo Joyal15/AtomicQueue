@@ -4,6 +4,7 @@ import { authenticate } from '../auth/index.js';
 import { validate } from '../../middleware/validate.js';
 
 import {
+  blockSlotController,
   generateSlotsController,
   generateSlotsSchema,
   listSlotsController,
@@ -13,17 +14,18 @@ const router = Router();
 
 router.use(authenticate);
 
-// POST /api/slots/generate — owner-only. Runs generate-weekly-slots
-// (architecture doc Section 6) for the caller's own business.
+// POST /api/slots/generate — owner-only. Generates slots for the caller's business.
 router.post(
   '/generate',
   validate(generateSlotsSchema),
   generateSlotsController,
 );
 
-// GET /api/slots — any authenticated staff/owner. Verification aid
-// for this module today; a head start for the future dashboard/
-// public booking-page slot list.
+// GET /api/slots — any authenticated staff/owner.
 router.get('/', listSlotsController);
+
+// POST /api/slots/:slotId/block — any authenticated staff/owner.
+// 404 if missing/cross-tenant, 409 if not currently available.
+router.post('/:slotId/block', blockSlotController);
 
 export default router;

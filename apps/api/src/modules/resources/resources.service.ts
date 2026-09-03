@@ -16,9 +16,6 @@ export interface CreateResourceInput {
 
 /**
  * Converts a MongoDB resource document into the shared API type.
- *
- * We explicitly return only the fields that are safe and required
- * by the Resource contract.
  */
 function toResource(resource: {
   _id: Types.ObjectId;
@@ -40,9 +37,6 @@ function toResource(resource: {
 
 /**
  * Creates a new resource for a business.
- *
- * The businessId is supplied by the authenticated user's session
- * at the controller layer.
  */
 export async function createResource(
   input: CreateResourceInput,
@@ -60,8 +54,6 @@ export async function createResource(
 
 /**
  * Returns all resources belonging to a business.
- *
- * Only resources for the supplied businessId are returned.
  */
 export async function getResources(
   businessId: string,
@@ -74,10 +66,8 @@ export async function getResources(
 }
 
 /**
- * Returns one resource belonging to a business.
- *
- * Returning null means the resource either does not exist
- * or does not belong to the supplied business.
+ * Returns one resource belonging to a business, or null if it
+ * doesn't exist or belongs to a different business.
  */
 export async function getResourceById(
   businessId: string,
@@ -96,10 +86,8 @@ export async function getResourceById(
 }
 
 /**
- * Input required to update a resource.
- *
- * All fields are optional because the endpoint supports
- * partial updates.
+ * Input required to update a resource. All fields optional to
+ * support partial updates.
  */
 export interface UpdateResourceInput {
   businessId: string;
@@ -111,10 +99,8 @@ export interface UpdateResourceInput {
 }
 
 /**
- * Updates a resource belonging to a business.
- *
- * The query includes businessId so a resource from another
- * business cannot be modified through this function.
+ * Updates a resource. Query includes businessId so a resource from
+ * another business can't be modified here.
  */
 export async function updateResource(
   input: UpdateResourceInput,
@@ -156,10 +142,8 @@ export async function updateResource(
 }
 
 /**
- * Retires a resource by marking it as removed.
- *
- * We do not permanently delete the resource because existing
- * bookings and historical records may still reference it.
+ * Retires a resource by marking it removed instead of deleting it,
+ * since existing bookings may still reference it.
  */
 export async function removeResource(
   businessId: string,

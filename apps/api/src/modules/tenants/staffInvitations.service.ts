@@ -2,9 +2,8 @@ import { createHash, randomBytes } from "node:crypto";
 import { Types, type ClientSession } from "mongoose";
 
 import { StaffInvitationModel } from "./staffInvitations.model.js";
-// Read-only stopgap import — same accepted pattern providers.service.ts
-// already uses for listProviders/validateProvider, until `auth` exports a
-// proper read function. Never write through this model from here.
+// Read-only access to the auth module's model. Never write through this
+// model from here.
 import { UserModel } from "../auth/auth.model.js";
 
 const INVITATION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -46,7 +45,7 @@ export interface CreatedStaffInvitation {
 
 /**
  * The find-or-resend-or-create body of createStaffInvitation, split out so
- * it can be safely retried once on a concurrent create race (see below).
+ * it can be retried once on a concurrent create race.
  */
 async function upsertInvitation(
   input: CreateStaffInvitationInput,
@@ -63,9 +62,7 @@ async function upsertInvitation(
   });
 
   if (existing) {
-    // Architecture §9b case 3: an accepted invitation means a User already
-    // exists for this email — the case-1 check below already covers this
-    // in practice, this stays as harmless defense-in-depth.
+    // An accepted invitation means a User already exists for this email.
     if (existing.status === "accepted") {
       const error = new Error(
         "A staff invitation for this email has already been accepted",
@@ -74,8 +71,8 @@ async function upsertInvitation(
       throw error;
     }
 
-    // Case 2: pending/expired/revoked -> implicit resend. Overwriting the
-    // token hash immediately invalidates whatever the previous token was.
+    // pending/expired/revoked -> implicit resend; overwriting the token
+    // hash invalidates the previous token.
     existing.tokenHash = tokenHash;
     existing.expiresAt = expiresAt;
     existing.status = "pending";
@@ -112,11 +109,9 @@ async function upsertInvitation(
       expiresAt,
     };
   } catch (error) {
-    // Two concurrent invites for a brand-new {businessId, email} pair can
-    // both pass the findOne check above and race on create() — the loser
-    // hits the {businessId, email} unique index. Retry once: the retry's
-    // findOne now sees the row the winner just inserted and takes the
-    // resend branch instead of create() again. Depth-1 only, no loop risk.
+    // Two concurrent invites for the same {businessId, email} can both pass
+    // the findOne check and race on create() — the loser hits the unique
+    // index. Retry once so it takes the resend branch instead.
     if (isDuplicateKeyError(error) && !isRetry) {
       return upsertInvitation(input, email, true);
     }
@@ -128,11 +123,8 @@ async function upsertInvitation(
 /**
  * Create a new staff invitation or resend an existing non-accepted one.
  *
- * Architecture §9b case 1: if the email already belongs to ANY Users row —
- * active or removed, this business or another — invite creation is
- * rejected outright, no exception. Checked before any invitation
- * read/write, since it applies regardless of whether an invitation row
- * exists yet.
+ * Rejected outright if the email already belongs to any Users row
+ * (active or removed, this business or another).
  */
 export async function createStaffInvitation(
   input: CreateStaffInvitationInput,
@@ -163,17 +155,15 @@ export type RevokeStaffInvitationResult =
 /**
  * Revoke a pending invitation.
  *
- * Distinguishes "no such invitation for this business" (404) from
- * "exists but isn't pending" (409) — a plain boolean can't carry that
- * distinction, so this returns a discriminated result instead.
+ * Returns a discriminated result so the caller can tell "no such
+ * invitation for this business" (404) apart from "exists but isn't
+ * pending" (409).
  */
 export async function revokeStaffInvitation(
   businessId: string,
   invitationId: string,
 ): Promise<RevokeStaffInvitationResult> {
-  // A malformed id would otherwise throw a Mongoose CastError before the
-  // query even runs (same guard class as availability.service.ts's
-  // isValidAvailabilityId).
+  // A malformed id would otherwise throw a Mongoose CastError.
   if (!Types.ObjectId.isValid(invitationId)) {
     return { ok: false, error: "INVITATION_NOT_FOUND" };
   }
@@ -196,11 +186,8 @@ export async function revokeStaffInvitation(
   }
 
   // Not modified: either it doesn't exist for this business, or it exists
-  // but isn't pending. One cheap extra read, only on this failure path, to
-  // tell those two apart for the caller. This is same-tenant state
-  // disclosure ("this invitation isn't pending"), not the cross-tenant
-  // enumeration case the always-404 rule (architecture §13) protects
-  // against — the caller already owns this business's invitations.
+  // but isn't pending. One extra read to tell those two apart for the
+  // caller.
   const exists = await StaffInvitationModel.exists({
     _id: invitationId,
     businessId,
@@ -236,23 +223,19 @@ export interface ConsumedInvitation {
 
 /**
  * Atomically consumes a raw invitation token inside the caller's
- * transaction — the accept half of architecture §9b's acceptance flow.
+ * transaction — the accept half of the invitation flow.
  *
- * Mirrors tenants.createBusiness's discipline exactly: requires an
- * already-open transaction (throws otherwise), because the invitation's
- * accepted status and the sibling staff User insert are both-or-neither,
- * same as the Business+owner-User write in signup (§4d).
+ * Requires an already-open transaction (throws otherwise), since the
+ * invitation's accepted status and the sibling staff User insert must
+ * commit together.
  *
- * Returns null for EVERY failure mode collapsed together on purpose —
- * unknown token, a token a later resend invalidated, revoked, expired
- * (checked live here, no background sweep), or already accepted. This is
- * what lets the caller return one generic 404 (enumeration resistance,
- * architecture §13) without branching on why.
+ * Returns null for every failure mode (unknown token, invalidated by a
+ * later resend, revoked, expired, or already accepted) so the caller can
+ * return one generic 404 without branching on why.
  *
- * On success this has already flipped the invitation to 'accepted' inside
- * the caller's transaction — it has NOT created the User. That insert is
- * the caller's, using the same array-form Model.create([...], { session })
- * pattern signupOwner() already uses for the owner User.
+ * On success this flips the invitation to 'accepted' but does NOT create
+ * the User — that insert is the caller's responsibility, in the same
+ * transaction.
  */
 export async function consumeInvitation(
   token: string,

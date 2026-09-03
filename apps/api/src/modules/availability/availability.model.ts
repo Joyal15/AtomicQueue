@@ -1,17 +1,12 @@
 /**
  * Mongoose schema for the Availability module.
  *
- * This file owns the persistence shape for `ProviderAvailability` —
- * the recurring weekly template that `generate-weekly-slots`
- * (Phase 3) reads to produce bookable `Slot` documents.
+ * Stores `ProviderAvailability` — the recurring weekly template that
+ * slot generation reads to produce bookable `Slot` documents.
  *
- * It is a generation TEMPLATE, not a live schedule:
- *   - Edits are applied in place, with no versioning or history.
- *   - A change only affects FUTURE generation runs; slots that were
- *     already generated are never retroactively resized or deleted.
- *
- * See the architecture doc Section 2 / 2a for the unified provider
- * model this shape has to match.
+ * It is a generation template, not a live schedule: edits apply in place
+ * with no versioning, and only affect future generation runs. Slots
+ * already generated are never retroactively resized or deleted.
  */
 
 import { Schema, model } from 'mongoose';
@@ -21,9 +16,8 @@ import type { ProviderType } from '@queueless/shared-types';
 /**
  * One recurring window inside a week, e.g. "Monday 09:00–17:00".
  *
- * This is the Mongo sub-document shape. It mirrors the public
- * `WeeklyAvailabilityWindow` API type but is kept separate so the
- * storage contract and the API contract can diverge independently.
+ * Mirrors the public `WeeklyAvailabilityWindow` API type but is kept as a
+ * separate Mongo sub-document shape.
  */
 export interface WeeklyAvailabilityWindowDocument {
   /** 0 = Sunday … 6 = Saturday. */
@@ -37,10 +31,9 @@ export interface WeeklyAvailabilityWindowDocument {
 /**
  * A single provider's availability template for one service.
  *
- * A "provider" is whoever/whatever a Slot is generated for. The
- * `providerId` points at either a `Users` row (`providerType`
- * 'staff') or a `Resources` row (`providerType` 'resource'); the
- * booking/generation engine never forks on which.
+ * A "provider" is whoever/whatever a Slot is generated for. `providerId`
+ * points at either a `Users` row (`providerType` 'staff') or a
+ * `Resources` row (`providerType` 'resource').
  */
 export interface ProviderAvailabilityDocument {
   /** Owning business — every query is scoped by this. */
@@ -50,10 +43,8 @@ export interface ProviderAvailabilityDocument {
   /** Which collection `providerId` refers to. */
   providerType: ProviderType;
   /**
-   * The service this template generates slots for. REQUIRED — a
-   * provider offering two services with different durations needs
-   * two separate rows with non-overlapping windows (architecture
-   * doc Section 2, "Multi-service providers").
+   * The service this template generates slots for. A provider offering
+   * two services with different durations needs two separate rows.
    */
   serviceId: string;
   /** Recurring weekly windows; empty means "no availability yet". */
@@ -63,13 +54,13 @@ export interface ProviderAvailabilityDocument {
 /**
  * Sub-schema for a weekly window.
  *
- * `_id: false` because these are value objects embedded in the
- * parent document, not independently addressable records.
+ * `_id: false` because these are value objects embedded in the parent
+ * document, not independently addressable records.
  */
 const weeklyAvailabilityWindowSchema =
   new Schema<WeeklyAvailabilityWindowDocument>(
     {
-      // Constrained to a valid day-of-week index at the DB layer.
+      // Valid day-of-week index, enforced at the DB layer.
       dayOfWeek: {
         type: Number,
         min: 0,
@@ -77,8 +68,8 @@ const weeklyAvailabilityWindowSchema =
         required: true,
       },
 
-      // Stored as a plain "HH:mm" string in business-local time;
-      // conversion to UTC happens only at slot-generation time.
+      // Plain "HH:mm" string in business-local time; converted to UTC
+      // only at slot-generation time.
       startTime: {
         type: String,
         required: true,
@@ -97,18 +88,9 @@ const weeklyAvailabilityWindowSchema =
 /**
  * Top-level schema for provider availability.
  *
- * `businessId` ensures every row belongs to exactly one business
- * and makes tenant-scoped queries possible.
- *
- * `providerType` is enum-constrained here as cheap protection
- * against a typo corrupting data; the cross-collection check that
- * `providerId` actually resolves to a real, same-business provider
- * lives in the `providers` module's validation function, since
- * MongoDB cannot enforce cross-collection references itself
- * (architecture doc Section 2b).
- *
- * `timestamps` gives us `createdAt` / `updatedAt` for free — useful
- * for debugging which template a generation run used.
+ * `providerType` is enum-constrained here as cheap protection against a
+ * typo; the real cross-collection check that `providerId` resolves to a
+ * real, same-business provider lives in the `providers` module.
  */
 const providerAvailabilitySchema =
   new Schema<ProviderAvailabilityDocument>(
@@ -148,7 +130,7 @@ const providerAvailabilitySchema =
  * Mongoose model used to create and query provider availability.
  *
  * Only the Availability service layer touches this directly; other
- * modules go through `./index.ts`'s exported functions.
+ * modules go through `./index.ts`.
  */
 export const ProviderAvailabilityModel =
   model<ProviderAvailabilityDocument>(

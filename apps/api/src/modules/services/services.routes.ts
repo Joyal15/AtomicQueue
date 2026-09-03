@@ -13,13 +13,7 @@ import {
 const router = Router();
 
 /**
- * Service routes.
- *
- * These routes define the HTTP interface for managing services.
- * Every route requires an authenticated session — `authenticate`
- * (the `auth` module) populates `req.user` from a fresh Mongo read
- * before any controller here runs; `requireUser` in each controller
- * is the type-level/defensive backstop, not a substitute for this.
+ * Every route below requires an authenticated session.
  */
 router.use(authenticate);
 

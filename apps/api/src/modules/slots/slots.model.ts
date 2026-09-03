@@ -1,12 +1,10 @@
 /**
  * Mongoose schema for the Slots module.
  *
- * A `Slot` is an actual bookable time unit, generated FROM a
- * `ProviderAvailability` template (`availability` module) by
- * `generateWeeklySlots` (`slots.service.ts`). Slots and their
- * generation template are deliberately separate collections — a
- * provider's availability template can be edited without touching
- * already-generated slots (architecture doc Section 2).
+ * A `Slot` is a bookable time unit generated from a
+ * `ProviderAvailability` template by `generateWeeklySlots`. Slots are
+ * a separate collection from their template, so editing the template
+ * doesn't touch already-generated slots.
  */
 
 import { Schema, model } from 'mongoose';
@@ -31,34 +29,14 @@ export interface SlotDocument {
   serviceId: string;
   /** UTC instant this slot starts at. */
   datetime: Date;
-  /**
-   * Snapshotted from Service.durationMinutes ONCE, at generation time,
-   * and never updated again for this Slot — the single deliberate
-   * exception to this design's "no snapshot, live resolution" rule
-   * (architecture doc Section 2).
-   */
+  /** Snapshotted from Service.durationMinutes once at generation time; never updated after. */
   durationMinutes: number;
-  /**
-   * 0 for a staff provider; 0..capacity-1 for a resource's parallel
-   * units. Distinguishes otherwise-identical slot documents so a
-   * genuine uniqueness constraint is possible (architecture doc
-   * Section 2b).
-   */
+  /** 0 for a staff provider; 0..capacity-1 for a resource's parallel units. */
   unitIndex: number;
   status: SlotStatus;
-  /**
-   * Fencing/version token for the hold/confirm flow. Non-null iff
-   * `status === 'held'`; cleared to null on every held -> X
-   * transition. Nothing in this module's generation path ever sets
-   * this to anything but null — included now for schema completeness
-   * so the future hold/claim work needs no migration.
-   */
+  /** Fencing token for the hold/confirm flow. Non-null only while status is 'held'. */
   holdVersion: string | null;
-  /**
-   * Reserved for optimistic-concurrency checks on non-booking edits
-   * (e.g. staff manually moving a slot's time). Unrelated to
-   * `holdVersion` above; unused by this module.
-   */
+  /** Optimistic-concurrency counter for non-booking edits; unused by this module. */
   version: number;
 }
 
@@ -124,19 +102,15 @@ const slotSchema = new Schema<SlotDocument>(
   },
 );
 
-// The data-integrity backstop against duplicate/malformed slot
-// generation (a generation bug, the weekly job racing itself).
-// `serviceId` is deliberately NOT part of this key — a provider
-// physically cannot hold two slots at the same instant regardless of
-// which service they're nominally for (architecture doc Section 2b).
+// Guards against duplicate slot generation. serviceId is excluded
+// since a provider can't hold two slots at the same instant regardless
+// of service.
 slotSchema.index(
   { businessId: 1, providerId: 1, providerType: 1, datetime: 1, unitIndex: 1 },
   { unique: true },
 );
 
-// Supports the hot-path claim query's performance — a separate
-// mechanism from the unique index above, serving a separate purpose
-// (architecture doc Section 2b).
+// Speeds up the hot-path claim query.
 slotSchema.index({
   businessId: 1,
   providerId: 1,
@@ -146,9 +120,7 @@ slotSchema.index({
 });
 
 /**
- * Mongoose model used to create and query slots.
- *
- * Only the Slots service layer touches this directly; other modules
- * go through `./index.ts`'s exported functions.
+ * Mongoose model for slots. Only the Slots service layer touches
+ * this directly; other modules go through `./index.ts`.
  */
 export const SlotModel = model<SlotDocument>('Slot', slotSchema);

@@ -9,9 +9,8 @@ import {
   type AuthUser,
 } from './auth-context-value'
 
-// Session-scoped, not localStorage: this is a display-only cache of the
-// last-known profile, never the credential itself (that's the HttpOnly
-// session cookie, which JS can't read regardless).
+// Cached in sessionStorage for display only — the real credential is the
+// HttpOnly session cookie, not this.
 const STORAGE_KEY = 'queueless.auth.user'
 
 function readCachedUser(): AuthUser | null {
@@ -31,8 +30,7 @@ function writeCachedUser(user: AuthUser | null) {
       sessionStorage.removeItem(STORAGE_KEY)
     }
   } catch {
-    // sessionStorage can throw (private browsing, storage disabled) —
-    // the session cookie is still the real credential either way; this
+    // sessionStorage can throw (private browsing, storage disabled);
     // only affects whether name/role survive a page refresh.
   }
 }
@@ -48,14 +46,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let cancelled = false
 
     async function bootstrap() {
-      // There is no GET /api/auth/me yet, so a page load/refresh can't
-      // independently ask "who am I." GET /api/tenants is the closest
-      // working substitute — it requires a valid session and returns
-      // the business tied to it, so a 200 confirms the session cookie
-      // is still good. The user's own name/email/role only survive a
-      // refresh via the cached snapshot below — a stopgap until a real
-      // /me exists (same "stopgap, not silently assumed" spirit as the
-      // backend's own documented workarounds).
+      // No GET /api/auth/me yet, so use GET /api/tenants as a stand-in:
+      // it requires a valid session, so a 200 confirms the cookie is
+      // still good. The cached user fills in name/email/role until a
+      // real /me endpoint exists.
       const cachedUser = readCachedUser()
 
       try {
@@ -72,8 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         // A non-401 failure (network blip, 500) shouldn't force a
-        // logged-in user back to the login screen — only an explicit
-        // 401 means "the session is actually invalid."
+        // logged-in user back to the login screen.
         setState({
           status: cachedUser ? 'authenticated' : 'unauthenticated',
           user: cachedUser,
@@ -101,12 +94,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function signOut() {
     try {
-      // /api/auth/logout doesn't exist yet either — best-effort call,
-      // clear local state regardless of the outcome so the UI reflects
-      // "signed out" even before the backend has a route for it.
+      // /api/auth/logout doesn't exist yet — best-effort call; local
+      // state is cleared below regardless of the outcome.
       await apiFetch('/auth/logout', { method: 'POST' })
     } catch {
-      // ignore — see comment above
+      // ignore
     }
 
     writeCachedUser(null)

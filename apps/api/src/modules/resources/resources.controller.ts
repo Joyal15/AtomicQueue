@@ -11,14 +11,7 @@ import {
 } from './resources.service.js';
 
 /**
- * Handles the HTTP request for creating a new resource.
- *
- * The business ID comes from the authenticated user's session.
- *
- * The resource information comes from the request body.
- *
- * This prevents a client from choosing another business's
- * businessId when creating a resource.
+ * Creates a resource. businessId comes from the session, not the request body.
  */
 export async function createResourceController(
   req: Request,
@@ -39,10 +32,7 @@ export async function createResourceController(
 }
 
 /**
- * Handles the HTTP request for getting all resources
- * belonging to the authenticated business.
- *
- * The business ID comes from the authenticated user's session.
+ * Gets all resources for the authenticated business.
  */
 export async function getResourcesController(
   req: Request,
@@ -60,15 +50,7 @@ export async function getResourcesController(
 }
 
 /**
- * Handles the HTTP request for getting one resource.
- *
- * The resourceId comes from the URL.
- *
- * The businessId comes from the authenticated user so that
- * the lookup is restricted to the user's own business.
- *
- * Returns 404 when the resource does not exist or does not
- * belong to the authenticated business.
+ * Gets one resource by ID, scoped to the authenticated business.
  */
 export async function getResourceByIdController(
   req: Request<{ resourceId: string }>,
@@ -81,8 +63,6 @@ export async function getResourceByIdController(
     req.params.resourceId,
   );
 
-  // The resource does not exist or does not belong
-  // to the authenticated user's business.
   if (!resource) {
     return res.status(404).json({
       error: {
@@ -98,13 +78,7 @@ export async function getResourceByIdController(
 }
 
 /**
- * Handles the HTTP request for updating a resource.
- *
- * The resourceId comes from the URL.
- *
- * The businessId comes from the authenticated user.
- *
- * The updated resource information comes from the request body.
+ * Updates a resource.
  */
 export async function updateResourceController(
   req: Request<{ resourceId: string }>,
@@ -121,8 +95,6 @@ export async function updateResourceController(
     status: req.body.status,
   });
 
-  // The resource either does not exist or does not belong
-  // to the authenticated user's business.
   if (!resource) {
     return res.status(404).json({
       error: {
@@ -138,14 +110,8 @@ export async function updateResourceController(
 }
 
 /**
- * Handles the HTTP request for removing a resource.
- *
- * We do not permanently delete the resource.
- *
- * Instead, the resource is marked as "removed" so existing
- * bookings and historical records can continue to reference it.
- *
- * The businessId comes from the authenticated user's session.
+ * Marks a resource as removed rather than deleting it, so existing
+ * bookings can still reference it.
  */
 export async function removeResourceController(
   req: Request<{ resourceId: string }>,
@@ -158,7 +124,6 @@ export async function removeResourceController(
     req.params.resourceId,
   );
 
-  // The resource was not found for this business.
   if (!resource) {
     return res.status(404).json({
       error: {

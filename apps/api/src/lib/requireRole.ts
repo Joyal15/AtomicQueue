@@ -3,21 +3,9 @@ import type { Request, Response } from 'express';
 import type { AuthenticatedUser } from '@queueless/shared-types';
 
 /**
- * Shared per-handler owner/staff role guard, sibling to `requireUser`.
- *
- * Takes the ALREADY-narrowed request type (`req.user` non-optional) —
- * call this only after `requireUser(req, res)` has returned `true`.
- * Requiring that shape makes calling `requireRole` before `requireUser`
- * a compile error instead of a runtime crash, which is exactly the call
- * order every controller needs.
- *
- * There is no general RBAC middleware yet (architecture doc Section 9's
- * role-check layer), so this stays an in-controller guard for now — the
- * same stopgap-until-a-real-thing-exists shape as `requireUser` itself.
- * Extracted because `staffInvitations.controller.ts` needs an owner-only
- * check at three separate call sites, which already clears the bar
- * `requireUser`'s own docstring uses ("written once instead of
- * copy-pasted into every controller").
+ * Checks that req.user has the given role, writing a 403 response if not.
+ * Call only after `requireUser(req, res)` has returned true, since it
+ * requires `req.user` to already be narrowed to non-optional.
  */
 export function requireRole(
   req: Request & { user: AuthenticatedUser },

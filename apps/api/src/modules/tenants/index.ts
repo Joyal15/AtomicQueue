@@ -1,9 +1,8 @@
 /**
  * Public surface of the Tenants module.
  *
- * Other modules — Peter 1's `auth` included — must import from this
- * barrel, never reach into `tenants.model.ts`/`staffInvitations.model.ts`
- * or the service files directly.
+ * Other modules must import from this barrel, not the model or service
+ * files directly.
  */
 
 export { default as tenantsRouter } from './tenants.routes.js';

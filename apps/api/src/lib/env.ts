@@ -7,9 +7,7 @@ const envSchema = z.object({
   REDIS_URL: z.string().min(1, 'REDIS_URL is required'),
   PORT: z.coerce.number().int().positive().default(4000),
   FRONTEND_URL: z.string().min(1, 'FRONTEND_URL is required'),
-  // Staff/owner auth is server-side Redis sessions behind an HttpOnly cookie, not JWT
-  // (architecture doc Section 9) — this secret signs/verifies the session cookie itself,
-  // it is never embedded in a token payload.
+  // Signs/verifies the session cookie (sessions are stored in Redis, not JWT).
   SESSION_COOKIE_SECRET: z.string().min(1, 'SESSION_COOKIE_SECRET is required'),
   SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(604800), // 7-day sliding TTL
 });

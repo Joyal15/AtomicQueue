@@ -16,10 +16,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
 /**
- * Staff invitations — architecture doc Section 9b. There's no shared
- * `StaffInvitation` type yet (it's not in packages/shared-types), so
- * this is typed locally against what the API's controller actually
- * returns (apps/api/.../staffInvitations.controller.ts).
+ * Staff invitations. There's no shared `StaffInvitation` type yet, so
+ * this is typed locally to match what the API controller returns.
  */
 interface StaffInvitation {
   id: string
@@ -61,10 +59,8 @@ export function StaffPage() {
   const [email, setEmail] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
-  // There's no email delivery yet (that's Phase 4's notifications
-  // module) — the create-invitation endpoint returns the raw token
-  // directly for exactly this reason. Surface it so an invite is
-  // actually usable end to end today.
+  // No email delivery yet, so the invite endpoint returns the raw
+  // token directly — surface it so an invite is actually usable.
   const [lastInvite, setLastInvite] = useState<CreatedInvitation | null>(
     null,
   )
@@ -84,8 +80,8 @@ export function StaffPage() {
   }
 
   useEffect(() => {
-    // Defined and invoked inline — see the matching comment in
-    // ServicesPage.tsx for why (react-hooks/set-state-in-effect).
+    // Wrapped so the setState calls happen after an await, not
+    // synchronously in the effect body (react-hooks/set-state-in-effect).
     async function loadOnMount() {
       if (isOwner) {
         await loadInvitations()
