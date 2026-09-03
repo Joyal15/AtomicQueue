@@ -1,46 +1,13 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  type ReactNode,
-} from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 
 import type { Business } from '@queueless/shared-types'
 
 import { apiFetch, ApiRequestError } from './api'
-
-/**
- * The API's signup (and, once built, login) response carries more than
- * the shared `User` type declares (`name`, `status`) — typed locally
- * here rather than against the incomplete shared type until that's
- * reconciled on the backend.
- */
-export interface AuthUser {
-  id: string
-  name: string
-  email: string
-  role: 'owner' | 'staff'
-  businessId: string
-  status: 'active' | 'removed'
-}
-
-interface AuthState {
-  status: 'loading' | 'authenticated' | 'unauthenticated'
-  user: AuthUser | null
-  business: Business | null
-}
-
-interface AuthContextValue extends AuthState {
-  /** Call right after a successful signup/login response. */
-  setSession: (user: AuthUser, business: Business) => void
-  /** Re-fetches just the business half (e.g. after editing settings). */
-  refreshBusiness: () => Promise<void>
-  /** Best-effort sign-out — clears local state either way. */
-  signOut: () => Promise<void>
-}
-
-const AuthContext = createContext<AuthContextValue | null>(null)
+import {
+  AuthContext,
+  type AuthState,
+  type AuthUser,
+} from './auth-context-value'
 
 // Session-scoped, not localStorage: this is a display-only cache of the
 // last-known profile, never the credential itself (that's the HttpOnly
@@ -153,12 +120,4 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       {children}
     </AuthContext.Provider>
   )
-}
-
-export function useAuth(): AuthContextValue {
-  const ctx = useContext(AuthContext)
-  if (!ctx) {
-    throw new Error('useAuth must be used within an AuthProvider')
-  }
-  return ctx
 }

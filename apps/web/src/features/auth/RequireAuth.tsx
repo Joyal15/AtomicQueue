@@ -1,6 +1,6 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
 
-import { useAuth } from '@/lib/auth-context'
+import { useAuth } from '@/lib/use-auth'
 
 /**
  * Gate for every authenticated route. Renders a loading state while the

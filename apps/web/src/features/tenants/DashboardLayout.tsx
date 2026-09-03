@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 
-import { useAuth } from '@/lib/auth-context'
+import { useAuth } from '@/lib/use-auth'
 import { Button } from '@/components/ui/button'
 
 const navItems = [

@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 
 import { apiFetch, ApiRequestError } from '@/lib/api'
-import { useAuth } from '@/lib/auth-context'
+import { useAuth } from '@/lib/use-auth'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -84,10 +84,14 @@ export function StaffPage() {
   }
 
   useEffect(() => {
-    if (isOwner) {
-      loadInvitations()
+    // Defined and invoked inline — see the matching comment in
+    // ServicesPage.tsx for why (react-hooks/set-state-in-effect).
+    async function loadOnMount() {
+      if (isOwner) {
+        await loadInvitations()
+      }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    void loadOnMount()
   }, [isOwner])
 
   async function handleInvite(event: FormEvent) {

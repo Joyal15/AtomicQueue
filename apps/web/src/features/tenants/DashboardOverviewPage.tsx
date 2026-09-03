@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 
 import { apiFetch, ApiRequestError } from '@/lib/api'
-import { useAuth } from '@/lib/auth-context'
+import { useAuth } from '@/lib/use-auth'
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {

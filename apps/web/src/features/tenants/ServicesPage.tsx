@@ -3,7 +3,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import type { Service } from '@queueless/shared-types'
 
 import { apiFetch, ApiRequestError } from '@/lib/api'
-import { useAuth } from '@/lib/auth-context'
+import { useAuth } from '@/lib/use-auth'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -49,8 +49,15 @@ export function ServicesPage() {
   }
 
   useEffect(() => {
-    loadServices()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Defined and invoked inline (rather than calling the outer
+    // `loadServices` reference directly) so the setState calls inside
+    // it happen after an await, not synchronously in the effect body —
+    // satisfies react-hooks/set-state-in-effect, same pattern as the
+    // bootstrap effect in lib/auth-context.tsx.
+    async function loadOnMount() {
+      await loadServices()
+    }
+    void loadOnMount()
   }, [])
 
   async function handleCreate(event: FormEvent) {
