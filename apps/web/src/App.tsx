@@ -1,119 +1,47 @@
-import { NavLink, Route, Routes } from "react-router-dom";
-import type { User } from "@queueless/shared-types";
+import { Navigate, Route, Routes } from 'react-router-dom'
 
-
-const sampleUser: User = {
-  id: "tenant-admin",
-  email: "owner@example.com",
-  role: "owner",
-  businessId: "sample-business",
-};
+import { useAuth } from '@/lib/auth-context'
+import { LoginPage } from '@/features/auth/LoginPage'
+import { SignupPage } from '@/features/auth/SignupPage'
+import { RequireAuth } from '@/features/auth/RequireAuth'
+import { DashboardLayout } from '@/features/tenants/DashboardLayout'
+import { DashboardOverviewPage } from '@/features/tenants/DashboardOverviewPage'
+import { ServicesPage } from '@/features/tenants/ServicesPage'
+import { StaffPage } from '@/features/tenants/StaffPage'
 
 function App() {
+  const { status } = useAuth()
 
-  
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
-      <header className="border-b border-slate-200 bg-white/90 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-          <div>
-            <h1 className="text-xl font-semibold">QueueLess++</h1>
-            
-          </div>
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/signup" element={<SignupPage />} />
 
-          <nav className="flex items-center gap-4 text-sm font-medium">
-            <NavLink
-              to="/dashboard"
-              className={({ isActive }) =>
-                isActive ? "text-slate-900" : "text-slate-600"
-              }
-            >
-              Dashboard
-            </NavLink>
-            <NavLink
-              to="/admin"
-              className={({ isActive }) =>
-                isActive ? "text-slate-900" : "text-slate-600"
-              }
-            >
-              Admin
-            </NavLink>
-            <NavLink
-              to="/acme-book"
-              className={({ isActive }) =>
-                isActive ? "text-slate-900" : "text-slate-600"
-              }
-            >
-              Bookings
-            </NavLink>
-          </nav>
+      <Route element={<RequireAuth />}>
+        <Route path="/dashboard" element={<DashboardLayout />}>
+          <Route index element={<DashboardOverviewPage />} />
+          <Route path="services" element={<ServicesPage />} />
+          <Route path="staff" element={<StaffPage />} />
+        </Route>
+      </Route>
 
-          <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700">
-            {sampleUser.role}
-          </div>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-6xl px-6 py-10">
-        <Routes>
-          <Route
-            path="/dashboard"
-            element={
-              <Placeholder
-                title="Dashboard"
-                description="Main operating dashboard for the tenant."
-              />
-            }
+      {/*
+        Public booking (/b/:slug) and everything else in the original
+        placeholder routing is Phase 3 scope (architecture doc §13a) —
+        not built here. Anything unmatched falls back to whichever of
+        login/dashboard is actually reachable right now.
+      */}
+      <Route
+        path="*"
+        element={
+          <Navigate
+            to={status === 'authenticated' ? '/dashboard' : '/login'}
+            replace
           />
-          <Route
-            path="/admin"
-            element={
-              <Placeholder
-                title="Admin"
-                description="Administrative controls and settings."
-              />
-            }
-          />
-          <Route
-            path="/:tenantSlug/book"
-            element={
-              <Placeholder
-                title="Booking Flow"
-                description="Public booking experience for a tenant."
-              />
-            }
-          />
-          <Route
-            path="*"
-            element={
-              <Placeholder
-                title="Home"
-                description="Route shell ready for the next feature work."
-              />
-            }
-          />
-        </Routes>
-      </main>
-    </div>
-  );
+        }
+      />
+    </Routes>
+  )
 }
 
-function Placeholder({
-  title,
-  description,
-}: {
-  title: string;
-  description: string;
-}) {
-  return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
-      <p className="mb-2 text-sm font-medium uppercase tracking-[0.2em] text-sky-600">
-        Tenant shell
-      </p>
-      <h2 className="text-3xl font-bold tracking-tight">{title}</h2>
-      <p className="mt-3 max-w-xl text-slate-600">{description}</p>
-    </section>
-  );
-}
-
-export default App;
+export default App

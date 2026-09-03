@@ -144,3 +144,6 @@ vite.config.ts.timestamp-*
 
 # Turborepo
 .turbo/
+
+# Personal/local notes — not shared repo docs
+PETER3-PHASE2-WALKTHROUGH.md
