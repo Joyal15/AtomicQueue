@@ -4,6 +4,13 @@ import { createSession } from "./auth.session.js";
 import { UserModel } from "./auth.model.js";
 import { createBusiness } from "../tenants/tenants.service.js";
 import { AppError } from "../../lib/Apperror.js";
+import {
+  recordLoginFailure,
+  recordIpLoginFailure,
+  resetLoginFailures,
+  resetIpLoginFailures,
+
+} from './auth.rateLimit.js';
 
 export interface SignupOwnerInput {
   name: string;
@@ -30,7 +37,26 @@ export interface SignupOwnerResult {
   sessionId: string;
 }
 
+export interface LoginInput {
+  email: string;
+  password: string;
+  ipAddress: string;
+}
+
+export interface LoginResult {
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    role: "owner" | "staff";
+    businessId: string;
+    status: "active";
+  };
+  sessionId: string;
+}
+
 const MAX_SLUG_RETRIES = 3;
+const DUMMY_PASSWORD_HASH = '2b$12$435mxxNOmm8fanBS.ZnGlufOVhDPRmAhuIs51XuvT0.kFCTPGL9fm';
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -205,4 +231,84 @@ export async function signupOwner(
   }
 
   throw new Error("Unable to create business after slug retry limit");
+}
+
+export async function login(
+  input: LoginInput,
+): Promise<LoginResult> {
+  const normalizedEmail = normalizeEmail(input.email);
+
+  const user = await UserModel.findOne({
+    email: normalizedEmail,
+  });
+
+  if (!user) {
+    await bcrypt.compare(input.password, DUMMY_PASSWORD_HASH);
+
+    const accountAllowed = await recordLoginFailure(normalizedEmail);
+    const ipAllowed = await recordIpLoginFailure(input.ipAddress);
+
+    if (!accountAllowed || !ipAllowed) {
+      throw new AppError(
+        429,
+        'LOGIN_RATE_LIMITED',
+        'Too many login attempts. Please try again later.',
+      );
+    }
+
+    throw new AppError(
+      401,
+      'INVALID_CREDENTIALS',
+      'Invalid email or password.',
+    );
+  }
+
+  const passwordMatches = await bcrypt.compare(
+    input.password,
+    user.passwordHash,
+  );
+
+  if (!passwordMatches) {
+    const accountAllowed = await recordLoginFailure(normalizedEmail);
+    const ipAllowed = await recordIpLoginFailure(input.ipAddress);
+
+    if (!accountAllowed || !ipAllowed) {
+      throw new AppError(
+        429,
+        'LOGIN_RATE_LIMITED',
+        'Too many login attempts. Please try again later.',
+      );
+    }
+
+    throw new AppError(
+      401,
+      'INVALID_CREDENTIALS',
+      'Invalid email or password.',
+    );
+  }
+
+  if (user.status !== 'active') {
+    throw new AppError(
+      401,
+      'INVALID_CREDENTIALS',
+      'Invalid email or password.',
+    );
+  }
+
+  await resetLoginFailures(normalizedEmail);
+  await resetIpLoginFailures(input.ipAddress);
+
+  const authSession = await createSession(String(user._id));
+
+  return {
+    user: {
+      id: String(user._id),
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      businessId: user.businessId,
+      status: user.status,
+    },
+    sessionId: authSession.sessionId,
+  };
 }

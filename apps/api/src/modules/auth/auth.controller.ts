@@ -1,6 +1,6 @@
 import type { RequestHandler } from 'express';
 
-import { signupOwner } from './auth.service.js';
+import { login , signupOwner } from './auth.service.js';
 
 const SESSION_COOKIE_NAME = 'session';
 
@@ -32,6 +32,31 @@ export const signupOwnerController: RequestHandler = async (req, res, next) => {
       data: {
         user: result.user,
         business: result.business,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const loginController: RequestHandler = async (req, res, next) => {
+  try {
+    const result = await login({
+      email: req.body.email,
+      password: req.body.password,
+      ipAddress: req.ip ?? 'unknown',
+    });
+
+    res.cookie(SESSION_COOKIE_NAME, result.sessionId, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'strict',
+      maxAge: SESSION_COOKIE_MAX_AGE,
+    });
+
+    res.status(200).json({
+      data: {
+        user: result.user,
       },
     });
   } catch (error) {
