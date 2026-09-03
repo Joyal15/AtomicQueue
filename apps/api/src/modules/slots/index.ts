@@ -8,12 +8,14 @@ export {
   listSlots,
   getAvailableSlots,
   blockSlot,
+  claimSlot,
   type GenerateSlotsOptions,
   type GenerateSlotsResult,
   type ListSlotsFilter,
   type GetAvailableSlotsFilter,
   type BlockSlotError,
   type BlockSlotResult,
+  type ClaimSlotResult,
 } from './slots.service.js';
 
 export type { SlotStatus } from './slots.model.js';

@@ -24,6 +24,7 @@ import { getAvailability } from '../availability/index.js';
 import { validateProvider } from '../providers/index.js';
 import { getServiceById } from '../services/index.js';
 import { getResourceById } from '../resources/index.js';
+import { emitSlotUpdate } from '../realtime/index.js';
 
 import { SlotModel, type SlotDocument, type SlotStatus } from './slots.model.js';
 
@@ -477,7 +478,11 @@ export async function blockSlot(
   ).lean();
 
   if (slot) {
-    return { ok: true, slot: toSlotApiShape(slot) };
+    const apiSlot = toSlotApiShape(slot);
+    // Best-effort push so a connected booking page/staff dashboard
+    // drops this slot immediately instead of waiting for a refetch.
+    emitSlotUpdate(businessId, { slotId: apiSlot.id, status: apiSlot.status });
+    return { ok: true, slot: apiSlot };
   }
 
   // Distinguish "doesn't exist" (404) from "exists but wasn't available" (409).
@@ -487,4 +492,69 @@ export async function blockSlot(
     ok: false,
     error: exists ? 'SLOT_NOT_AVAILABLE' : 'SLOT_NOT_FOUND',
   };
+}
+
+export type ClaimSlotResult =
+  | { ok: true; slotId: string; holdVersion: string }
+  | { ok: false; error: 'SLOT_NOT_AVAILABLE' };
+
+/**
+ * Atomically claims one available slot for (businessId, providerId,
+ * providerType, serviceId, datetime) and transitions it available ->
+ * held, stamping a fresh holdVersion (a fencing token, not a secret —
+ * the caller is expected to pair this with its own Redis TTL hold).
+ *
+ * Deliberately doesn't take a specific slotId or unitIndex: for a
+ * capacity-N resource, any interchangeable unit at that
+ * provider+datetime will do. `findOneAndUpdate` picks and updates one
+ * matching document atomically, so concurrent callers each land on a
+ * different available unit (or get SLOT_NOT_AVAILABLE once none are
+ * left) with no extra locking needed.
+ *
+ * One error for every failure mode (no matching slot, wrong service,
+ * already held/confirmed/blocked/cancelled, bad datetime) — callers
+ * don't need to branch on why, just offer the waitlist / ask the
+ * customer to pick another time.
+ */
+export async function claimSlot(
+  businessId: string,
+  providerId: string,
+  providerType: ProviderType,
+  serviceId: string,
+  datetime: Date | string,
+): Promise<ClaimSlotResult> {
+  const parsedDatetime = new Date(datetime);
+
+  if (Number.isNaN(parsedDatetime.getTime())) {
+    return { ok: false, error: 'SLOT_NOT_AVAILABLE' };
+  }
+
+  const holdVersion = new Types.ObjectId().toString();
+
+  const slot = await SlotModel.findOneAndUpdate(
+    {
+      businessId,
+      providerId,
+      providerType,
+      serviceId,
+      datetime: parsedDatetime,
+      status: 'available',
+    },
+    { status: 'held', holdVersion },
+    { new: true },
+  )
+    .select({ _id: 1 })
+    .lean();
+
+  if (!slot) {
+    return { ok: false, error: 'SLOT_NOT_AVAILABLE' };
+  }
+
+  const slotId = String(slot._id);
+
+  // Best-effort push so a connected booking page drops this slot (or
+  // decrements its remaining count) immediately.
+  emitSlotUpdate(businessId, { slotId, status: 'held' });
+
+  return { ok: true, slotId, holdVersion };
 }

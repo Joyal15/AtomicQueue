@@ -1,3 +1,4 @@
+import { createServer } from 'node:http';
 import express from 'express';
 import { env } from './lib/env.js';
 import { connectDatabase, isDatabaseConnected} from './lib/db.js';
@@ -8,8 +9,10 @@ import { checkRedisConnection } from './lib/redis.js';
 import cors from 'cors';
 import routes from './routes.js';
 import cookieParser from 'cookie-parser';
+import { initRealtime } from './modules/realtime/index.js';
 
 const app = express();
+const httpServer = createServer(app);
 const port = Number(env.PORT || 4000);
 
 app.use(pinoHttp({logger}));
@@ -41,9 +44,10 @@ app.use(errorHandler)
 async function startServer() {
   await connectDatabase();
   await checkRedisConnection();
-  
 
-  app.listen(port, () => {
+  initRealtime(httpServer);
+
+  httpServer.listen(port, () => {
     logger.info(`API listening on http://localhost:${port}`);
   });
 }
