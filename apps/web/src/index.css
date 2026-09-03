@@ -2,12 +2,48 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Design tokens the shadcn-style components in components/ui already
+ * reference (bg-card, border-input, ring-ring, etc.) — without these,
+ * every one of those classes resolves to nothing, since Tailwind never
+ * generates a utility for a color it doesn't know about. Light theme
+ * only: nothing in this app switches themes, so there's no .dark block.
+ */
+@layer base {
+  :root {
+    --background: 210 40% 98%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --primary: 222 47% 11%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+
+    --accent: 210 40% 96%;
+    --accent-foreground: 222 47% 11%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 222 47% 11%;
+
+    --radius: 0.5rem;
+  }
+}
+
 :root {
   font-family: Inter, system-ui, sans-serif;
   line-height: 1.5;
   font-weight: 400;
-  color: #0f172a;
-  background: #f8fafc;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -15,13 +51,15 @@
 }
 
 html {
-  background: #f8fafc;
+  background: hsl(var(--background));
 }
 
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  color: hsl(var(--foreground));
+  background: hsl(var(--background));
 }
 
 #root {
