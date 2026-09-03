@@ -1,6 +1,6 @@
 import { Router } from 'express';
 
-import { authRouter } from './modules/auth/index.js';
+import { authRouter, staffRouter} from './modules/auth/index.js';
 import { tenantsRouter } from './modules/tenants/index.js';
 import { bookingsRouter } from './modules/bookings/index.js';
 import { servicesRouter } from './modules/services/index.js';
@@ -12,6 +12,7 @@ import { slotsRouter } from './modules/slots/index.js';
 const router = Router();
 
 router.use('/auth', authRouter);
+router.use('/staff', staffRouter);
 router.use('/tenants', tenantsRouter);
 router.use('/bookings', bookingsRouter);
 router.use('/services', servicesRouter);

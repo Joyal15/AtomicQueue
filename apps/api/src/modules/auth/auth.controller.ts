@@ -1,6 +1,12 @@
 import type { RequestHandler } from 'express';
 
-import { login , logout, logoutEverywhere, signupOwner } from './auth.service.js';
+import {
+  acceptStaffInvitation,
+  login , 
+  logout, 
+  logoutEverywhere, 
+  signupOwner,
+} from './auth.service.js';
 
 const SESSION_COOKIE_NAME = 'session';
 
@@ -109,6 +115,35 @@ export const logoutEverywhereController: RequestHandler = async (
     });
 
     res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const acceptStaffInvitationController: RequestHandler = async (
+  req,
+  res,
+  next,
+) => {
+  try {
+    const result = await acceptStaffInvitation({
+      token: req.params.token as string,
+      name: req.body.name,
+      password: req.body.password,
+    });
+
+    res.cookie(SESSION_COOKIE_NAME, result.sessionId, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "strict",
+      maxAge: SESSION_COOKIE_MAX_AGE,
+    });
+
+    res.status(200).json({
+      data: {
+        user: result.user,
+      },
+    });
   } catch (error) {
     next(error);
   }

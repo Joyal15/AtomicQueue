@@ -11,6 +11,7 @@ import {
   resetIpLoginFailures,
 
 } from './auth.rateLimit.js';
+import { consumeInvitation } from "../tenants/staffInvitations.service.js";
 
 export interface SignupOwnerInput {
   name: string;
@@ -49,6 +50,24 @@ export interface LoginResult {
     name: string;
     email: string;
     role: "owner" | "staff";
+    businessId: string;
+    status: "active";
+  };
+  sessionId: string;
+}
+
+export interface AcceptStaffInvitationInput {
+  token: string;
+  name: string;
+  password: string;
+}
+
+export interface AcceptStaffInvitationResult {
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    role: "staff";
     businessId: string;
     status: "active";
   };
@@ -231,6 +250,83 @@ export async function signupOwner(
   }
 
   throw new Error("Unable to create business after slug retry limit");
+}
+
+export async function acceptStaffInvitation(
+  input: AcceptStaffInvitationInput,
+): Promise<AcceptStaffInvitationResult> {
+  const passwordHash = await bcrypt.hash(input.password, 12);
+
+  const session = await mongoose.startSession();
+
+  try {
+    session.startTransaction();
+
+    const consumedInvitation = await consumeInvitation(
+      input.token,
+      session,
+    );
+
+    if (!consumedInvitation) {
+      throw new AppError(
+        404,
+        "INVITATION_NOT_FOUND",
+        "Invitation not found or is no longer valid.",
+      );
+    }
+
+    const userId = new mongoose.Types.ObjectId().toString();
+    const passwordChangedAt = new Date();
+
+    await UserModel.create(
+      [
+        {
+          _id: userId,
+          name: input.name,
+          email: consumedInvitation.email,
+          passwordHash,
+          passwordChangedAt,
+          sessionsInvalidatedAt: null,
+          role: "staff",
+          businessId: consumedInvitation.businessId,
+          status: "active",
+        },
+      ],
+      { session },
+    );
+
+    await session.commitTransaction();
+
+    const authSession = await createSession(userId);
+
+    return {
+      user: {
+        id: userId,
+        name: input.name,
+        email: consumedInvitation.email,
+        role: "staff",
+        businessId: consumedInvitation.businessId,
+        status: "active",
+      },
+      sessionId: authSession.sessionId,
+    };
+  } catch (error) {
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
+
+    if (isDuplicateEmailError(error)) {
+      throw new AppError(
+        409,
+        "EMAIL_ALREADY_EXISTS",
+        "An account with that email already exists.",
+      );
+    }
+
+    throw error;
+  } finally {
+    await session.endSession();
+  }
 }
 
 export async function login(
