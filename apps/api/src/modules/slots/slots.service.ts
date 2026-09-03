@@ -25,6 +25,7 @@ import { validateProvider } from '../providers/index.js';
 import { getServiceById } from '../services/index.js';
 import { getResourceById } from '../resources/index.js';
 import { emitSlotUpdate } from '../realtime/index.js';
+import { ClientSession } from 'mongoose';
 
 import { SlotModel, type SlotDocument, type SlotStatus } from './slots.model.js';
 
@@ -660,3 +661,39 @@ export async function releaseHeldSlot(
 
   return true;
 }
+export async function confirmHeldSlot(
+  slotId: string,
+  businessId: string,
+  holdVersion: string,
+  session: ClientSession,
+): Promise<boolean> {
+  if (!Types.ObjectId.isValid(slotId)) {
+    return false;
+  }
+
+  const slot = await SlotModel.findOneAndUpdate(
+    {
+      _id: slotId,
+      businessId,
+      status: 'held',
+      holdVersion,
+    },
+    {
+      $set: {
+        status: 'confirmed',
+      },
+      $unset: {
+        holdVersion: 1,
+      },
+    },
+    {
+      session,
+      new: true,
+    },
+  )
+    .select({ _id: 1 })
+    .lean();
+
+  return Boolean(slot);
+}
+

@@ -10,6 +10,7 @@ export {
   blockSlot,
   claimSlot,
   releaseHeldSlot,
+  confirmHeldSlot,
   type GenerateSlotsOptions,
   type GenerateSlotsResult,
   type ListSlotsFilter,
