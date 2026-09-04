@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 
 import { AppError } from '../../lib/Apperror.js';
-import { confirmBooking } from './bookings.service.js';
+import { confirmBooking , listBookings} from './bookings.service.js';
 
 export async function createBooking(
   req: Request,
@@ -112,5 +112,24 @@ export function getBookingsStatus(
       module: 'bookings',
       status: 'skeleton',
     },
+  });
+}
+
+export async function getBookings(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  if (!req.user) {
+    throw new AppError(
+      401,
+      'UNAUTHENTICATED',
+      'Authentication required.',
+    );
+  }
+
+  const bookings = await listBookings(req.user.businessId);
+
+  res.json({
+    data: bookings,
   });
 }

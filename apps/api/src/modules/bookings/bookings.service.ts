@@ -57,6 +57,23 @@ interface RedisHold {
   holdVersion: string;
 }
 
+export interface BookingListItem {
+  id: string;
+  businessId: string;
+  slotId: string;
+  customer: {
+    name: string;
+    contactType: 'email' | 'phone';
+    contact: string;
+  };
+  createdBy: string | null;
+  status: 'confirmed' | 'cancelled' | 'completed' | 'no-show';
+  accessTokenExpiresAt: string | null;
+  noShowRiskNote: string | null;
+  createdAt: string;
+  cancelledAt: string | null;
+}
+
 function getHoldKey(slotId: string): string {
   return `hold:${slotId}`;
 }
@@ -374,4 +391,32 @@ export async function confirmBooking(
       await session.endSession();
     }
   }
+}
+
+export async function listBookings(
+  businessId: string,
+): Promise<BookingListItem[]> {
+  const bookings = await BookingModel.find({
+    businessId,
+  })
+    .sort({ createdAt: -1 })
+    .lean();
+
+  return bookings.map((booking) => ({
+    id: String(booking._id),
+    businessId: booking.businessId,
+    slotId: booking.slotId,
+    customer: {
+      name: booking.customer.name,
+      contactType: booking.customer.contactType,
+      contact: booking.customer.contact,
+    },
+    createdBy: booking.createdBy,
+    status: booking.status,
+    accessTokenExpiresAt:
+      booking.accessTokenExpiresAt?.toISOString() ?? null,
+    noShowRiskNote: booking.noShowRiskNote,
+    createdAt: booking.createdAt.toISOString(),
+    cancelledAt: booking.cancelledAt?.toISOString() ?? null,
+  }));
 }
