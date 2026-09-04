@@ -45,7 +45,13 @@ export function useSlotUpdates(
   onUpdate: (payload: SlotUpdatePayload) => void,
 ): void {
   const handlerRef = useRef(onUpdate)
-  handlerRef.current = onUpdate
+
+  // Keep the ref pointed at the latest callback without re-subscribing
+  // the socket listener below on every render. Writing to a ref must
+  // happen in an effect, not during render itself.
+  useEffect(() => {
+    handlerRef.current = onUpdate
+  })
 
   useEffect(() => {
     const socket = getSocket()

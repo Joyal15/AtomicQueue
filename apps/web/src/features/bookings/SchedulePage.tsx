@@ -63,6 +63,12 @@ export function SchedulePage() {
   const [slots, setSlots] = useState<Slot[] | null>(null)
   const [slotsError, setSlotsError] = useState<string | null>(null)
   const [blockingId, setBlockingId] = useState<string | null>(null)
+  // Tracks which provider `slots` currently belongs to, so switching
+  // providers can clear the stale list immediately (see the render-time
+  // reset below) instead of briefly showing the previous provider's slots.
+  const [loadedProviderKey, setLoadedProviderKey] = useState<string | null>(
+    null,
+  )
 
   const [generating, setGenerating] = useState(false)
   const [generateResult, setGenerateResult] = useState<string | null>(null)
@@ -75,6 +81,15 @@ export function SchedulePage() {
       ) ?? null,
     [providers, selectedKey],
   )
+
+  // Resetting local state in response to a prop/state change (not a side
+  // effect) belongs during render, not in an effect — React's own
+  // "adjusting state when a prop changes" pattern. Guarded so it only
+  // fires once per actual key change, not every render.
+  if (selectedProvider && loadedProviderKey !== selectedKey) {
+    setLoadedProviderKey(selectedKey)
+    setSlots(null)
+  }
 
   useEffect(() => {
     async function loadProviders() {
@@ -115,9 +130,15 @@ export function SchedulePage() {
 
   useEffect(() => {
     if (!selectedProvider) return
-    setSlots(null)
-    void loadSlots(selectedProvider)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Matches the loadProviders effect above: the fetch needs to be a
+    // function declared inside the effect itself, not merely called from
+    // it, for the linter to see setSlots as happening after the await
+    // rather than synchronously within the effect. loadSlots stays a
+    // standalone function too, for handleGenerate's reuse below.
+    async function run(provider: Provider) {
+      await loadSlots(provider)
+    }
+    void run(selectedProvider)
   }, [selectedProvider])
 
   // Live updates: the backend's event contract is still draft (see
