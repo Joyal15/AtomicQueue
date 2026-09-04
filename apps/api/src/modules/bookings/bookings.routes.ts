@@ -8,6 +8,7 @@ import {
   getBookings,
   createWalkInBookingController,
   exchangeMagicLinkController,
+  resendMagicLinkController,
   getCustomerBookingController,
 } from './bookings.controller.js';
 
@@ -20,6 +21,11 @@ bookingsRouter.get('/status', getBookingsStatus);
 bookingsRouter.post(
   '/magic-link/exchange',
   exchangeMagicLinkController,
+);
+
+bookingsRouter.post(
+  '/magic-link/resend',
+  resendMagicLinkController,
 );
 
 bookingsRouter.get(

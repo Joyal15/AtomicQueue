@@ -30,3 +30,8 @@ export { default as availabilityRouter } from './availability.routes.js';
 // path (`/businesses/:slug/availability`), not nested under the mount
 // above. See publicAvailability.routes.ts.
 export { default as publicAvailabilityRouter } from './publicAvailability.routes.js';
+
+// Public (unauthenticated) catalog router — service/provider name
+// lookups a customer-facing booking page needs. See
+// publicCatalog.routes.ts.
+export { default as publicCatalogRouter } from './publicCatalog.routes.js';

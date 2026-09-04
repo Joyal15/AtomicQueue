@@ -71,18 +71,11 @@ export const requireBookingAccess: RequestHandler = async (
       );
     }
 
+    // No separate expiry check here: exchangeMagicLink already
+    // guarantees a non-expired booking on success (and throws the
+    // same generic 404 as "doesn't exist" if not — enumeration
+    // resistance, see magic-link.service.ts).
     const now = Date.now();
-
-    if (
-      !booking.accessTokenExpiresAt ||
-      booking.accessTokenExpiresAt.getTime() <= now
-    ) {
-      throw new AppError(
-        401,
-        'MAGIC_LINK_EXPIRED',
-        'This booking link has expired.',
-      );
-    }
 
     const cutoffAt =
       slot.datetime

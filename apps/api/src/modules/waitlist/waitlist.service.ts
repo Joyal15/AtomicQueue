@@ -1,5 +1,7 @@
 import { AppError } from '../../lib/Apperror.js';
+import { logger } from '../../lib/logger.js';
 import { getSlotById } from '../slots/index.js';
+import { sendEmail } from '../notifications/index.js';
 import {
   WaitlistEntryModel,
   type WaitlistStatus,
@@ -188,4 +190,39 @@ export async function markWaitlistEntryNotified(
   }
 
   return toWaitlistItem(entry);
+}
+
+/**
+ * The Phase 3 "trigger on slot release": finds the next matching
+ * waiting entry for a slot that just came back to 'available' and
+ * notifies them by email, marking the entry 'notified' so a second
+ * concurrent release for the same slot doesn't re-notify. Best-effort
+ * and never throws — a missed notification here just means this entry
+ * stays 'waiting' and is picked up by the next matching opening
+ * instead (architecture doc §6), same as everywhere else in this
+ * project that treats notifications as best-effort, not guaranteed.
+ *
+ * This is the Phase 3 foundation for what `waitlist-notify` (the
+ * BullMQ job, Phase 4) eventually replaces — a synchronous call for
+ * now, since the job queue isn't wired to this trigger yet.
+ */
+export async function notifyNextWaitlistEntry(
+  businessId: string,
+  slotId: string,
+): Promise<void> {
+  try {
+    const candidate = await findNextMatchingWaitlistEntry(businessId, slotId);
+    if (!candidate) return;
+
+    const marked = await markWaitlistEntryNotified(candidate.id);
+    if (!marked) return;
+
+    await sendEmail({
+      to: marked.customer.contact,
+      subject: 'A slot just opened up',
+      text: "Good news — a slot you're waiting for is available again. Book it soon before it's taken.",
+    });
+  } catch (error) {
+    logger.warn({ err: error, businessId, slotId }, 'waitlist notify failed');
+  }
 }

@@ -5,6 +5,8 @@ import { confirmBooking , createWalkInBooking, listBookings, getBookingForCustom
 import {
   exchangeMagicLink,
   setBookingAccessCookie,
+  checkResendRateLimit,
+  resendMagicLink,
 } from './magic-link.service.js';
 
 
@@ -262,6 +264,60 @@ export async function exchangeMagicLinkController(
     res.json({
       data: {
         bookingId: String(booking._id),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Handles POST /api/bookings/magic-link/resend. Always returns the
+ * identical neutral response, whether or not the contact matched a
+ * booking — enumeration resistance (architecture doc §13a). A 429
+ * from the rate limit is the one exception: it's safe to expose since
+ * it reveals nothing about whether the contact matches anything.
+ */
+export async function resendMagicLinkController(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const { contact } = req.body;
+
+    if (typeof contact !== 'string' || !contact.trim()) {
+      res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Please check the highlighted fields.',
+          fields: { contact: 'Contact is required.' },
+        },
+      });
+      return;
+    }
+
+    const withinLimit = await checkResendRateLimit(
+      req.ip ?? 'unknown',
+      contact,
+    );
+
+    if (!withinLimit) {
+      res.status(429).json({
+        error: {
+          code: 'RATE_LIMITED',
+          message: 'Too many requests. Please try again later.',
+        },
+      });
+      return;
+    }
+
+    await resendMagicLink(contact);
+
+    res.status(200).json({
+      data: {
+        message:
+          'If that contact matches an upcoming booking, a link has been sent.',
       },
     });
   } catch (error) {

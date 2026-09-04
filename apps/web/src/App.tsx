@@ -10,6 +10,10 @@ import { ServicesPage } from '@/features/tenants/ServicesPage'
 import { StaffPage } from '@/features/tenants/StaffPage'
 import { SchedulePage } from '@/features/bookings/SchedulePage'
 import { WalkInBookingPage } from '@/features/bookings/WalkInBookingPage'
+import { PublicBookingPage } from '@/features/bookings/PublicBookingPage'
+import { MagicLinkManagePage } from '@/features/bookings/MagicLinkManagePage'
+import { StaffBookingsPage } from '@/features/bookings/StaffBookingsPage'
+import { StaffWaitlistPage } from '@/features/bookings/StaffWaitlistPage'
 
 function App() {
   const { status } = useAuth()
@@ -18,6 +22,8 @@ function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/signup" element={<SignupPage />} />
+      <Route path="/b/:slug" element={<PublicBookingPage />} />
+      <Route path="/manage" element={<MagicLinkManagePage />} />
 
       <Route element={<RequireAuth />}>
         <Route path="/dashboard" element={<DashboardLayout />}>
@@ -26,10 +32,12 @@ function App() {
           <Route path="staff" element={<StaffPage />} />
           <Route path="schedule" element={<SchedulePage />} />
           <Route path="walk-in" element={<WalkInBookingPage />} />
+          <Route path="bookings" element={<StaffBookingsPage />} />
+          <Route path="waitlist" element={<StaffWaitlistPage />} />
         </Route>
       </Route>
 
-      {/* Public booking and other routes aren't built yet; fall back to login or dashboard. */}
+      {/* Other routes aren't built yet; fall back to login or dashboard. */}
       <Route
         path="*"
         element={

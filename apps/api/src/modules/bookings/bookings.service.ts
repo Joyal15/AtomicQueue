@@ -11,6 +11,7 @@ import {
   emitBookingConfirmationUpdate,
   getSlotById,
 } from '../slots/index.js';
+import { notifyNextWaitlistEntry } from '../waitlist/index.js';
 
 import { BookingModel } from './bookings.model.js';
 
@@ -282,6 +283,12 @@ async function claimAndHold(
       claim.slotId,
       claim.holdVersion,
     );
+
+    // This slot just came back to 'available' via the stale-hold lazy
+    // release — the "trigger on slot release" the waitlist module
+    // needs (architecture doc §6/§13a). Best-effort, fire-and-forget:
+    // never blocks or delays this loop's claim retry.
+    void notifyNextWaitlistEntry(input.businessId, claim.slotId);
   }
 
   throw new AppError(

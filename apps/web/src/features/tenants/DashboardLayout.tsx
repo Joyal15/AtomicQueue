@@ -9,6 +9,8 @@ const navItems = [
   { to: '/dashboard/staff', label: 'Staff', end: false },
   { to: '/dashboard/schedule', label: 'Schedule', end: false },
   { to: '/dashboard/walk-in', label: 'Walk-in booking', end: false },
+  { to: '/dashboard/bookings', label: 'Bookings', end: false },
+  { to: '/dashboard/waitlist', label: 'Waitlist', end: false },
 ]
 
 /**

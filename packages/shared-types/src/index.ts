@@ -5,3 +5,4 @@ export * from './resource.js';
 export * from './providerAvailability.js';
 export * from './slot.js';
 export * from './booking.js';
+export * from './waitlistEntry.js';

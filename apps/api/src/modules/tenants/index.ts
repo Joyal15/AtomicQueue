@@ -7,6 +7,11 @@
 
 export { default as tenantsRouter } from './tenants.routes.js';
 
+// Public (unauthenticated) business-by-slug lookup — owns its own
+// top-level path (`/businesses/:slug`), not nested under the
+// authenticated mount above. See publicBusiness.routes.ts.
+export { default as publicBusinessRouter } from './publicBusiness.routes.js';
+
 export {
   createBusiness,
   getBusinessById,
