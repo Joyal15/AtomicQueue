@@ -9,6 +9,7 @@ import {
   confirmHeldSlot,
   releaseHeldSlot,
 } from '../slots/index.js';
+import { emitSlotUpdate } from '../realtime/index.js';
 
 import { BookingModel } from './bookings.model.js';
 
@@ -388,6 +389,10 @@ export async function confirmBooking(
      * Redis is now only cleanup. If this fails, the TTL will eventually
      * remove the hold, and the booking remains valid.
      */
+    emitSlotUpdate(input.businessId, {
+      slotId,
+      status: 'confirmed',
+    });
     try {
       await deleteRedisHold(
         slotId,
