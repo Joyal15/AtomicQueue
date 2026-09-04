@@ -1,6 +1,7 @@
-import type { NextFunction, Request, RequestHandler, Response } from 'express';
+import type { RequestHandler } from 'express';
 import { z } from 'zod';
 
+import { asyncHandler } from '../../lib/asyncHandler.js';
 import { requireUser } from '../../lib/requireUser.js';
 import { requireRole } from '../../lib/requireRole.js';
 
@@ -41,32 +42,24 @@ export const updateBusinessSchema = z
  * Any authenticated user (owner or staff) can view it — no owner-only
  * restriction on the read side.
  */
-export async function getMyBusinessController(
-  req: Request,
-  res: Response,
-  next: NextFunction,
-) {
+export const getMyBusinessController = asyncHandler(async (req, res) => {
   if (!requireUser(req, res)) return;
 
-  try {
-    const business = await getBusinessById(req.user.businessId);
+  const business = await getBusinessById(req.user.businessId);
 
-    if (!business) {
-      return res.status(404).json({
-        error: {
-          code: 'NOT_FOUND',
-          message: 'Business not found',
-        },
-      });
-    }
-
-    return res.status(200).json({
-      data: business,
+  if (!business) {
+    return res.status(404).json({
+      error: {
+        code: 'NOT_FOUND',
+        message: 'Business not found',
+      },
     });
-  } catch (error) {
-    return next(error);
   }
-}
+
+  return res.status(200).json({
+    data: business,
+  });
+});
 
 /**
  * Handles the HTTP request for updating the authenticated business's
@@ -74,35 +67,27 @@ export async function getMyBusinessController(
  *
  * Owner-only: changing business-wide policy is an owner decision.
  */
-export async function updateMyBusinessController(
-  req: Request,
-  res: Response,
-  next: NextFunction,
-) {
+export const updateMyBusinessController = asyncHandler(async (req, res) => {
   if (!requireUser(req, res)) return;
   if (!requireRole(req, res, 'owner')) return;
 
-  try {
-    const business = await updateBusiness({
-      businessId: req.user.businessId,
-      name: req.body.name,
-      timezone: req.body.timezone,
-      cancellationCutoffMinutes: req.body.cancellationCutoffMinutes,
-    });
+  const business = await updateBusiness({
+    businessId: req.user.businessId,
+    name: req.body.name,
+    timezone: req.body.timezone,
+    cancellationCutoffMinutes: req.body.cancellationCutoffMinutes,
+  });
 
-    if (!business) {
-      return res.status(404).json({
-        error: {
-          code: 'NOT_FOUND',
-          message: 'Business not found',
-        },
-      });
-    }
-
-    return res.status(200).json({
-      data: business,
+  if (!business) {
+    return res.status(404).json({
+      error: {
+        code: 'NOT_FOUND',
+        message: 'Business not found',
+      },
     });
-  } catch (error) {
-    return next(error);
   }
-}
+
+  return res.status(200).json({
+    data: business,
+  });
+});

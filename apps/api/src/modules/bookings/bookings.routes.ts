@@ -1,6 +1,7 @@
 import { Router } from 'express';
 
 import { authenticate } from '../auth/authenticate.js';
+import { validate } from '../../middleware/validate.js';
 
 import {
   createBooking,
@@ -10,6 +11,9 @@ import {
   exchangeMagicLinkController,
   resendMagicLinkController,
   getCustomerBookingController,
+  createBookingSchema,
+  exchangeMagicLinkSchema,
+  resendMagicLinkSchema,
 } from './bookings.controller.js';
 
 import { requireBookingAccess } from './booking-access.js';
@@ -20,11 +24,13 @@ bookingsRouter.get('/status', getBookingsStatus);
 
 bookingsRouter.post(
   '/magic-link/exchange',
+  validate(exchangeMagicLinkSchema),
   exchangeMagicLinkController,
 );
 
 bookingsRouter.post(
   '/magic-link/resend',
+  validate(resendMagicLinkSchema),
   resendMagicLinkController,
 );
 
@@ -37,12 +43,14 @@ bookingsRouter.get(
 bookingsRouter.post(
   '/',
   authenticate,
+  validate(createBookingSchema),
   createBooking,
 );
 
 bookingsRouter.post(
   '/walk-in',
   authenticate,
+  validate(createBookingSchema),
   createWalkInBookingController,
 );
 

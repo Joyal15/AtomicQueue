@@ -1,6 +1,7 @@
 import { Router } from 'express';
 
 import { authenticate } from '../auth/index.js';
+import { validate } from '../../middleware/validate.js';
 
 import {
   createResourceController,
@@ -8,6 +9,8 @@ import {
   getResourceByIdController,
   updateResourceController,
   removeResourceController,
+  createResourceSchema,
+  updateResourceSchema,
 } from './resources.controller.js';
 
 const router = Router();
@@ -18,7 +21,7 @@ const router = Router();
 router.use(authenticate);
 
 // Create a new resource.
-router.post('/', createResourceController);
+router.post('/', validate(createResourceSchema), createResourceController);
 
 // Get all resources for the authenticated business.
 router.get('/', getResourcesController);
@@ -27,7 +30,7 @@ router.get('/', getResourcesController);
 router.get('/:resourceId', getResourceByIdController);
 
 // Update an existing resource.
-router.patch('/:resourceId', updateResourceController);
+router.patch('/:resourceId', validate(updateResourceSchema), updateResourceController);
 
 // Remove a resource by marking it as removed.
 router.delete('/:resourceId', removeResourceController);

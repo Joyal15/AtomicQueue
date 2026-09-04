@@ -11,8 +11,9 @@
  * `businessId`) a customer has no use for.
  */
 
-import type { NextFunction, Request, Response } from 'express';
+import type { Response } from 'express';
 
+import { asyncHandler } from '../../lib/asyncHandler.js';
 import { getBusinessBySlug } from '../tenants/index.js';
 import { getServices } from '../services/index.js';
 import { listProviders } from '../providers/index.js';
@@ -34,53 +35,37 @@ async function resolveBusinessOr404(
 }
 
 /** Handles GET /api/businesses/:slug/services — active services only. */
-export async function getPublicServices(
-  req: Request<{ slug: string }>,
-  res: Response,
-  next: NextFunction,
-) {
-  try {
-    const business = await resolveBusinessOr404(req.params.slug, res);
-    if (!business) return;
+export const getPublicServices = asyncHandler<{ slug: string }>(async (req, res) => {
+  const business = await resolveBusinessOr404(req.params.slug, res);
+  if (!business) return;
 
-    const services = await getServices(business.id);
+  const services = await getServices(business.id);
 
-    res.status(200).json({
-      data: services
-        .filter((service) => service.isActive)
-        .map((service) => ({
-          id: service.id,
-          name: service.name,
-          durationMinutes: service.durationMinutes,
-          price: service.price,
-        })),
-    });
-  } catch (error) {
-    next(error);
-  }
-}
+  res.status(200).json({
+    data: services
+      .filter((service) => service.isActive)
+      .map((service) => ({
+        id: service.id,
+        name: service.name,
+        durationMinutes: service.durationMinutes,
+        price: service.price,
+      })),
+  });
+});
 
 /** Handles GET /api/businesses/:slug/providers — active providers only. */
-export async function getPublicProviders(
-  req: Request<{ slug: string }>,
-  res: Response,
-  next: NextFunction,
-) {
-  try {
-    const business = await resolveBusinessOr404(req.params.slug, res);
-    if (!business) return;
+export const getPublicProviders = asyncHandler<{ slug: string }>(async (req, res) => {
+  const business = await resolveBusinessOr404(req.params.slug, res);
+  if (!business) return;
 
-    const providers = await listProviders(business.id);
+  const providers = await listProviders(business.id);
 
-    res.status(200).json({
-      data: providers.map((provider) => ({
-        providerId: provider.providerId,
-        providerType: provider.providerType,
-        name: provider.name,
-        capacity: provider.capacity,
-      })),
-    });
-  } catch (error) {
-    next(error);
-  }
-}
+  res.status(200).json({
+    data: providers.map((provider) => ({
+      providerId: provider.providerId,
+      providerType: provider.providerType,
+      name: provider.name,
+      capacity: provider.capacity,
+    })),
+  });
+});

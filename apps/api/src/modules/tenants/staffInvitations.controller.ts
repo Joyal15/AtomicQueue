@@ -5,13 +5,13 @@
  * elsewhere (it creates a `User`), built on this module's exported
  * `consumeInvitation()`.
  *
- * Every handler wraps its body in try/catch + next(error), since Express 4
- * does not auto-catch a rejected promise from an async handler.
+ * Every handler is wrapped in `asyncHandler` so a rejected promise
+ * reaches `errorHandler` instead of leaving the request hanging.
  */
 
-import type { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 
+import { asyncHandler } from '../../lib/asyncHandler.js';
 import { requireUser } from '../../lib/requireUser.js';
 import { requireRole } from '../../lib/requireRole.js';
 
@@ -39,11 +39,7 @@ export const createStaffInvitationSchema = z.object({
  * businessId and invitedBy come from the authenticated owner's session,
  * never the request body.
  */
-export async function createStaffInvitationController(
-  req: Request,
-  res: Response,
-  next: NextFunction,
-) {
+export const createStaffInvitationController = asyncHandler(async (req, res) => {
   if (!requireUser(req, res)) return;
   if (!requireRole(req, res, 'owner')) return;
 
@@ -77,40 +73,32 @@ export async function createStaffInvitationController(
       });
     }
 
-    return next(error);
+    throw error;
   }
-}
+});
 
 /**
  * Handles the HTTP request for listing the authenticated business's
  * staff invitations (every status — pending, accepted, revoked, expired).
  */
-export async function listStaffInvitationsController(
-  req: Request,
-  res: Response,
-  next: NextFunction,
-) {
+export const listStaffInvitationsController = asyncHandler(async (req, res) => {
   if (!requireUser(req, res)) return;
   if (!requireRole(req, res, 'owner')) return;
 
-  try {
-    const invitations = await getStaffInvitations(req.user.businessId);
+  const invitations = await getStaffInvitations(req.user.businessId);
 
-    return res.status(200).json({
-      data: invitations.map((invitation) => ({
-        id: String(invitation._id),
-        businessId: invitation.businessId,
-        email: invitation.email,
-        status: invitation.status,
-        invitedBy: invitation.invitedBy,
-        expiresAt: invitation.expiresAt,
-        acceptedAt: invitation.acceptedAt,
-      })),
-    });
-  } catch (error) {
-    return next(error);
-  }
-}
+  return res.status(200).json({
+    data: invitations.map((invitation) => ({
+      id: String(invitation._id),
+      businessId: invitation.businessId,
+      email: invitation.email,
+      status: invitation.status,
+      invitedBy: invitation.invitedBy,
+      expiresAt: invitation.expiresAt,
+      acceptedAt: invitation.acceptedAt,
+    })),
+  });
+});
 
 /**
  * Handles the HTTP request for revoking a pending staff invitation.
@@ -118,15 +106,11 @@ export async function listStaffInvitationsController(
  * 404 when the invitation doesn't exist for this business; 409 when it
  * exists but isn't pending (already accepted/revoked/expired).
  */
-export async function revokeStaffInvitationController(
-  req: Request<{ invitationId: string }>,
-  res: Response,
-  next: NextFunction,
-) {
-  if (!requireUser(req, res)) return;
-  if (!requireRole(req, res, 'owner')) return;
+export const revokeStaffInvitationController = asyncHandler<{ invitationId: string }>(
+  async (req, res) => {
+    if (!requireUser(req, res)) return;
+    if (!requireRole(req, res, 'owner')) return;
 
-  try {
     const result = await revokeStaffInvitation(
       req.user.businessId,
       req.params.invitationId,
@@ -157,7 +141,5 @@ export async function revokeStaffInvitationController(
         status: 'revoked',
       },
     });
-  } catch (error) {
-    return next(error);
-  }
-}
+  },
+);

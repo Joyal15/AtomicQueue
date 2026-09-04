@@ -7,8 +7,10 @@
  * No validation or persistence logic lives here.
  */
 
-import type { Request, Response } from 'express';
+import type { Response } from 'express';
+import { z } from 'zod';
 
+import { asyncHandler } from '../../lib/asyncHandler.js';
 import { requireUser } from '../../lib/requireUser.js';
 
 import {
@@ -19,6 +21,45 @@ import {
   removeAvailability,
   type AvailabilityWriteError,
 } from './availability.service.js';
+
+/**
+ * Business-local "HH:mm" wall-clock time, e.g. "09:00" or "17:30" — see
+ * `availability.model.ts`'s `WeeklyAvailabilityWindowDocument`.
+ */
+const timeString = z
+  .string()
+  .regex(/^([01]\d|2[0-3]):([0-5]\d)$/, 'Use 24-hour "HH:mm" format.');
+
+const weeklyWindowSchema = z.object({
+  dayOfWeek: z
+    .number()
+    .int('Day of week must be a whole number.')
+    .min(0, 'Day of week must be between 0 (Sunday) and 6 (Saturday).')
+    .max(6, 'Day of week must be between 0 (Sunday) and 6 (Saturday).'),
+  startTime: timeString,
+  endTime: timeString,
+});
+
+/** Body schema for POST /, enforced by `validate()` at the router level. */
+export const createAvailabilitySchema = z.object({
+  providerId: z.string().trim().min(1, 'Provider is required.'),
+  providerType: z.enum(['staff', 'resource']),
+  serviceId: z.string().trim().min(1, 'Service is required.'),
+  weeklyWindows: z.array(weeklyWindowSchema).optional(),
+});
+
+/**
+ * Body schema for PATCH /:availabilityId. Every field is optional
+ * (partial update), but at least one must be present.
+ */
+export const updateAvailabilitySchema = z
+  .object({
+    serviceId: z.string().trim().min(1, 'Service is required.').optional(),
+    weeklyWindows: z.array(weeklyWindowSchema).optional(),
+  })
+  .refine((data) => Object.keys(data).length > 0, {
+    message: 'Provide at least one field to update.',
+  });
 
 /**
  * Maps a service-layer write error onto an HTTP response.
@@ -77,10 +118,7 @@ function sendWriteError(
  *
  * businessId comes from the session, not the request body.
  */
-export async function createAvailabilityController(
-  req: Request,
-  res: Response,
-) {
+export const createAvailabilityController = asyncHandler(async (req, res) => {
   if (!requireUser(req, res)) return;
 
   const result = await createAvailability({
@@ -98,7 +136,7 @@ export async function createAvailabilityController(
   return res.status(201).json({
     data: result.availability,
   });
-}
+});
 
 /**
  * Handles the HTTP request for listing availability rows
@@ -106,10 +144,7 @@ export async function createAvailabilityController(
  *
  * Supports optional providerId and serviceId query filters.
  */
-export async function getAvailabilityController(
-  req: Request,
-  res: Response,
-) {
+export const getAvailabilityController = asyncHandler(async (req, res) => {
   if (!requireUser(req, res)) return;
 
   const availability = await getAvailability(req.user.businessId, {
@@ -126,7 +161,7 @@ export async function getAvailabilityController(
   return res.status(200).json({
     data: availability,
   });
-}
+});
 
 /**
  * Handles the HTTP request for getting one availability row.
@@ -137,30 +172,29 @@ export async function getAvailabilityController(
  * Returns 404 when the row does not exist or does not belong to
  * the authenticated business.
  */
-export async function getAvailabilityByIdController(
-  req: Request<{ availabilityId: string }>,
-  res: Response,
-) {
-  if (!requireUser(req, res)) return;
+export const getAvailabilityByIdController = asyncHandler<{ availabilityId: string }>(
+  async (req, res) => {
+    if (!requireUser(req, res)) return;
 
-  const availability = await getAvailabilityById(
-    req.user.businessId,
-    req.params.availabilityId,
-  );
+    const availability = await getAvailabilityById(
+      req.user.businessId,
+      req.params.availabilityId,
+    );
 
-  if (!availability) {
-    return res.status(404).json({
-      error: {
-        code: 'NOT_FOUND',
-        message: 'Availability not found',
-      },
+    if (!availability) {
+      return res.status(404).json({
+        error: {
+          code: 'NOT_FOUND',
+          message: 'Availability not found',
+        },
+      });
+    }
+
+    return res.status(200).json({
+      data: availability,
     });
-  }
-
-  return res.status(200).json({
-    data: availability,
-  });
-}
+  },
+);
 
 /**
  * Handles the HTTP request for updating an availability row.
@@ -168,27 +202,26 @@ export async function getAvailabilityByIdController(
  * The availabilityId comes from the URL. The businessId comes from
  * the authenticated user. The updated fields come from the body.
  */
-export async function updateAvailabilityController(
-  req: Request<{ availabilityId: string }>,
-  res: Response,
-) {
-  if (!requireUser(req, res)) return;
+export const updateAvailabilityController = asyncHandler<{ availabilityId: string }>(
+  async (req, res) => {
+    if (!requireUser(req, res)) return;
 
-  const result = await updateAvailability({
-    businessId: req.user.businessId,
-    availabilityId: req.params.availabilityId,
-    serviceId: req.body.serviceId,
-    weeklyWindows: req.body.weeklyWindows,
-  });
+    const result = await updateAvailability({
+      businessId: req.user.businessId,
+      availabilityId: req.params.availabilityId,
+      serviceId: req.body.serviceId,
+      weeklyWindows: req.body.weeklyWindows,
+    });
 
-  if (!result.ok) {
-    return sendWriteError(res, result.error);
-  }
+    if (!result.ok) {
+      return sendWriteError(res, result.error);
+    }
 
-  return res.status(200).json({
-    data: result.availability,
-  });
-}
+    return res.status(200).json({
+      data: result.availability,
+    });
+  },
+);
 
 /**
  * Handles the HTTP request for removing an availability row.
@@ -196,27 +229,26 @@ export async function updateAvailabilityController(
  * The availabilityId comes from the URL. The businessId comes from
  * the authenticated user's session.
  */
-export async function removeAvailabilityController(
-  req: Request<{ availabilityId: string }>,
-  res: Response,
-) {
-  if (!requireUser(req, res)) return;
+export const removeAvailabilityController = asyncHandler<{ availabilityId: string }>(
+  async (req, res) => {
+    if (!requireUser(req, res)) return;
 
-  const availability = await removeAvailability(
-    req.user.businessId,
-    req.params.availabilityId,
-  );
+    const availability = await removeAvailability(
+      req.user.businessId,
+      req.params.availabilityId,
+    );
 
-  if (!availability) {
-    return res.status(404).json({
-      error: {
-        code: 'NOT_FOUND',
-        message: 'Availability not found',
-      },
+    if (!availability) {
+      return res.status(404).json({
+        error: {
+          code: 'NOT_FOUND',
+          message: 'Availability not found',
+        },
+      });
+    }
+
+    return res.status(200).json({
+      data: availability,
     });
-  }
-
-  return res.status(200).json({
-    data: availability,
-  });
-}
+  },
+);

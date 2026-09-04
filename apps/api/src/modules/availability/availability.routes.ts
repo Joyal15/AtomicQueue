@@ -12,6 +12,7 @@
 import { Router } from 'express';
 
 import { authenticate } from '../auth/index.js';
+import { validate } from '../../middleware/validate.js';
 
 import {
   createAvailabilityController,
@@ -19,6 +20,8 @@ import {
   getAvailabilityByIdController,
   updateAvailabilityController,
   removeAvailabilityController,
+  createAvailabilitySchema,
+  updateAvailabilitySchema,
 } from './availability.controller.js';
 
 const router = Router();
@@ -27,7 +30,7 @@ router.use(authenticate);
 
 // POST /api/availability
 // Create a new availability template for a provider + service.
-router.post('/', createAvailabilityController);
+router.post('/', validate(createAvailabilitySchema), createAvailabilityController);
 
 // GET /api/availability?providerId=&serviceId=
 // List the authenticated business's templates, optionally filtered
@@ -41,7 +44,7 @@ router.get('/:availabilityId', getAvailabilityByIdController);
 // PATCH /api/availability/:availabilityId
 // Partial update — currently the serviceId and weeklyWindows.
 // Repointing serviceId re-runs the same-business + active check.
-router.patch('/:availabilityId', updateAvailabilityController);
+router.patch('/:availabilityId', validate(updateAvailabilitySchema), updateAvailabilityController);
 
 // DELETE /api/availability/:availabilityId
 // Hard-delete the template (no soft-disable, unlike resources/services).

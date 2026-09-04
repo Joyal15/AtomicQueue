@@ -5,10 +5,9 @@
  * delegate to the service layer, and return `{ data }`.
  */
 
-import type { Request, Response } from 'express';
-
 import type { ProviderType } from '@queueless/shared-types';
 
+import { asyncHandler } from '../../lib/asyncHandler.js';
 import { requireUser } from '../../lib/requireUser.js';
 
 import { listProviders } from './providers.service.js';
@@ -25,10 +24,7 @@ const PROVIDER_TYPES: readonly ProviderType[] = ['staff', 'resource'];
  *   - `includeRemoved=true`   also include retired/removed providers;
  *                             defaults to bookable-only
  */
-export async function listProvidersController(
-  req: Request,
-  res: Response,
-) {
+export const listProvidersController = asyncHandler(async (req, res) => {
   if (!requireUser(req, res)) return;
 
   const typeParam = req.query.type;
@@ -46,4 +42,4 @@ export async function listProvidersController(
   return res.status(200).json({
     data: providers,
   });
-}
+});

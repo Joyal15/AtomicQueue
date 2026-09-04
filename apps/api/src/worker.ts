@@ -51,6 +51,19 @@ async function processJob(jobName: string): Promise<void> {
   }
 }
 
+// Last-resort safety net: an unhandled rejection outside a job's own
+// try/catch (e.g. a bug in the scheduler setup itself) would otherwise
+// crash the worker silently — log it before exiting so it shows up.
+process.on('uncaughtException', (error) => {
+  logger.error(error, 'Uncaught exception in worker');
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  logger.error(reason, 'Unhandled promise rejection in worker');
+  process.exit(1);
+});
+
 async function startWorker() {
   await connectDatabase();
 

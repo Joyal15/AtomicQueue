@@ -1,5 +1,4 @@
-import type { RequestHandler } from 'express';
-
+import { asyncHandler } from '../../lib/asyncHandler.js';
 import { AppError } from '../../lib/Apperror.js';
 import { getBusinessById } from '../tenants/index.js';
 import { getSlotById } from '../slots/index.js';
@@ -23,106 +22,90 @@ declare global {
   }
 }
 
-export const requireBookingAccess: RequestHandler = async (
-  req,
-  _res,
-  next,
-) => {
-  try {
-    const parsed = getBookingAccessCookie(
-      req.cookies?.booking_access,
+export const requireBookingAccess = asyncHandler(async (req, _res, next) => {
+  const parsed = getBookingAccessCookie(
+    req.cookies?.booking_access,
+  );
+
+  if (!parsed) {
+    throw new AppError(
+      401,
+      'BOOKING_ACCESS_REQUIRED',
+      'Booking access is required.',
     );
-
-    if (!parsed) {
-      throw new AppError(
-        401,
-        'BOOKING_ACCESS_REQUIRED',
-        'Booking access is required.',
-      );
-    }
-
-    const booking = await exchangeMagicLink(
-      parsed.bookingId,
-      parsed.token,
-    );
-
-    const slot = await getSlotById(
-      booking.businessId,
-      booking.slotId,
-    );
-
-    if (!slot) {
-      throw new AppError(
-        404,
-        'BOOKING_NOT_FOUND',
-        'Booking not found.',
-      );
-    }
-
-    const business = await getBusinessById(
-      booking.businessId,
-    );
-
-    if (!business) {
-      throw new AppError(
-        404,
-        'BOOKING_NOT_FOUND',
-        'Booking not found.',
-      );
-    }
-
-    // No separate expiry check here: exchangeMagicLink already
-    // guarantees a non-expired booking on success (and throws the
-    // same generic 404 as "doesn't exist" if not — enumeration
-    // resistance, see magic-link.service.ts).
-    const now = Date.now();
-
-    const cutoffAt =
-      slot.datetime
-        ? new Date(
-            new Date(slot.datetime).getTime() -
-              business.cancellationCutoffMinutes * 60 * 1000,
-          ).getTime()
-        : 0;
-
-    req.bookingAccess = {
-      bookingId: String(booking._id),
-      tier:
-        now < cutoffAt
-          ? 'manage'
-          : 'view-only',
-    };
-
-    next();
-  } catch (error) {
-    next(error);
   }
-};
 
-export const requireBookingManagement: RequestHandler = async (
-  req,
-  _res,
-  next,
-) => {
-  try {
-    if (!req.bookingAccess) {
-      throw new AppError(
-        401,
-        'BOOKING_ACCESS_REQUIRED',
-        'Booking access is required.',
-      );
-    }
+  const booking = await exchangeMagicLink(
+    parsed.bookingId,
+    parsed.token,
+  );
 
-    if (req.bookingAccess.tier !== 'manage') {
-      throw new AppError(
-        403,
-        'BOOKING_MANAGEMENT_CLOSED',
-        'Booking management is no longer available.',
-      );
-    }
+  const slot = await getSlotById(
+    booking.businessId,
+    booking.slotId,
+  );
 
-    next();
-  } catch (error) {
-    next(error);
+  if (!slot) {
+    throw new AppError(
+      404,
+      'BOOKING_NOT_FOUND',
+      'Booking not found.',
+    );
   }
-};
+
+  const business = await getBusinessById(
+    booking.businessId,
+  );
+
+  if (!business) {
+    throw new AppError(
+      404,
+      'BOOKING_NOT_FOUND',
+      'Booking not found.',
+    );
+  }
+
+  // No separate expiry check here: exchangeMagicLink already
+  // guarantees a non-expired booking on success (and throws the
+  // same generic 404 as "doesn't exist" if not — enumeration
+  // resistance, see magic-link.service.ts).
+  const now = Date.now();
+
+  const cutoffAt =
+    slot.datetime
+      ? new Date(
+          new Date(slot.datetime).getTime() -
+            business.cancellationCutoffMinutes * 60 * 1000,
+        ).getTime()
+      : 0;
+
+  req.bookingAccess = {
+    bookingId: String(booking._id),
+    tier:
+      now < cutoffAt
+        ? 'manage'
+        : 'view-only',
+  };
+
+  next();
+});
+
+export const requireBookingManagement = asyncHandler(async (req, _res, next) => {
+  if (!req.bookingAccess) {
+    throw new AppError(
+      401,
+      'BOOKING_ACCESS_REQUIRED',
+      'Booking access is required.',
+    );
+  }
+
+  if (req.bookingAccess.tier !== 'manage') {
+    throw new AppError(
+      403,
+      'BOOKING_MANAGEMENT_CLOSED',
+      'Booking management is no longer available.',
+    );
+  }
+
+  next();
+});

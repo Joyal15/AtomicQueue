@@ -1,5 +1,7 @@
-import type { NextFunction, Request, Response } from 'express';
+import type { Request, Response } from 'express';
+import { z } from 'zod';
 
+import { asyncHandler } from '../../lib/asyncHandler.js';
 import { AppError } from '../../lib/Apperror.js';
 import { confirmBooking , createWalkInBooking, listBookings, getBookingForCustomer} from './bookings.service.js';
 import {
@@ -9,12 +11,35 @@ import {
   resendMagicLink,
 } from './magic-link.service.js';
 
+/**
+ * Body schema shared by POST / (customer self-service) and POST
+ * /walk-in (staff-entered) — same shape, enforced by `validate()` at
+ * the router level.
+ */
+export const createBookingSchema = z.object({
+  providerId: z.string().trim().min(1, 'Provider is required.'),
+  providerType: z.enum(['staff', 'resource']),
+  serviceId: z.string().trim().min(1, 'Service is required.'),
+  datetime: z.string().trim().min(1, 'Date/time is required.'),
+  customer: z.object({
+    name: z.string().trim().min(1, 'Name is required.'),
+    contactType: z.enum(['email', 'phone']),
+    contact: z.string().trim().min(1, 'Contact is required.'),
+  }),
+});
 
+/** Body schema for POST /magic-link/exchange. */
+export const exchangeMagicLinkSchema = z.object({
+  bookingId: z.string().trim().min(1, 'bookingId is required.'),
+  token: z.string().trim().min(1, 'token is required.'),
+});
 
-export async function createBooking(
-  req: Request,
-  res: Response,
-): Promise<void> {
+/** Body schema for POST /magic-link/resend. */
+export const resendMagicLinkSchema = z.object({
+  contact: z.string().trim().min(1, 'Contact is required.'),
+});
+
+export const createBooking = asyncHandler(async (req, res) => {
   const {
     providerId,
     providerType,
@@ -42,55 +67,6 @@ export async function createBooking(
     );
   }
 
-  if (
-    typeof providerId !== 'string' ||
-    typeof providerType !== 'string' ||
-    typeof serviceId !== 'string' ||
-    typeof datetime !== 'string'
-  ) {
-    throw new AppError(
-      400,
-      'INVALID_REQUEST',
-      'Invalid booking request.',
-    );
-  }
-
-  if (
-    providerType !== 'staff' &&
-    providerType !== 'resource'
-  ) {
-    throw new AppError(
-      400,
-      'INVALID_PROVIDER_TYPE',
-      'Invalid provider type.',
-    );
-  }
-
-  if (
-    typeof customer !== 'object' ||
-    customer === null ||
-    typeof customer.name !== 'string' ||
-    typeof customer.contactType !== 'string' ||
-    typeof customer.contact !== 'string'
-  ) {
-    throw new AppError(
-      400,
-      'INVALID_CUSTOMER',
-      'Invalid customer information.',
-    );
-  }
-
-  if (
-    customer.contactType !== 'email' &&
-    customer.contactType !== 'phone'
-  ) {
-    throw new AppError(
-      400,
-      'INVALID_CONTACT_TYPE',
-      'Contact type must be email or phone.',
-    );
-  }
-
   const result = await confirmBooking({
     businessId: req.user.businessId,
     providerId,
@@ -109,7 +85,7 @@ export async function createBooking(
   res.status(201).json({
     data: result,
   });
-}
+});
 
 export function getBookingsStatus(
   _req: Request,
@@ -123,10 +99,7 @@ export function getBookingsStatus(
   });
 }
 
-export async function getBookings(
-  req: Request,
-  res: Response,
-): Promise<void> {
+export const getBookings = asyncHandler(async (req, res) => {
   if (!req.user) {
     throw new AppError(
       401,
@@ -140,12 +113,9 @@ export async function getBookings(
   res.json({
     data: bookings,
   });
-}
+});
 
-export async function createWalkInBookingController(
-  req: Request,
-  res: Response,
-): Promise<void> {
+export const createWalkInBookingController = asyncHandler(async (req, res) => {
   if (!req.user) {
     throw new AppError(
       401,
@@ -161,55 +131,6 @@ export async function createWalkInBookingController(
     datetime,
     customer,
   } = req.body;
-
-  if (
-    typeof providerId !== 'string' ||
-    typeof providerType !== 'string' ||
-    typeof serviceId !== 'string' ||
-    typeof datetime !== 'string'
-  ) {
-    throw new AppError(
-      400,
-      'INVALID_REQUEST',
-      'Invalid booking request.',
-    );
-  }
-
-  if (
-    providerType !== 'staff' &&
-    providerType !== 'resource'
-  ) {
-    throw new AppError(
-      400,
-      'INVALID_PROVIDER_TYPE',
-      'Invalid provider type.',
-    );
-  }
-
-  if (
-    typeof customer !== 'object' ||
-    customer === null ||
-    typeof customer.name !== 'string' ||
-    typeof customer.contactType !== 'string' ||
-    typeof customer.contact !== 'string'
-  ) {
-    throw new AppError(
-      400,
-      'INVALID_CUSTOMER',
-      'Invalid customer information.',
-    );
-  }
-
-  if (
-    customer.contactType !== 'email' &&
-    customer.contactType !== 'phone'
-  ) {
-    throw new AppError(
-      400,
-      'INVALID_CONTACT_TYPE',
-      'Contact type must be email or phone.',
-    );
-  }
 
   const result = await createWalkInBooking({
     businessId: req.user.businessId,
@@ -228,48 +149,25 @@ export async function createWalkInBookingController(
   res.status(201).json({
     data: result,
   });
-}
+});
 
-export async function exchangeMagicLinkController(
-  req: Request,
-  res: Response,
-  next: NextFunction,
-): Promise<void> {
-  try {
-    const { bookingId, token } = req.body;
+export const exchangeMagicLinkController = asyncHandler(async (req, res) => {
+  const { bookingId, token } = req.body;
 
-    if (
-      typeof bookingId !== 'string' ||
-      typeof token !== 'string' ||
-      !bookingId ||
-      !token
-    ) {
-      res.status(400).json({
-        error: {
-          code: 'INVALID_REQUEST',
-          message: 'bookingId and token are required.',
-        },
-      });
-      return;
-    }
+  const booking = await exchangeMagicLink(bookingId, token);
 
-    const booking = await exchangeMagicLink(bookingId, token);
+  setBookingAccessCookie(
+    res,
+    bookingId,
+    token,
+  );
 
-    setBookingAccessCookie(
-      res,
-      bookingId,
-      token,
-    );
-
-    res.json({
-      data: {
-        bookingId: String(booking._id),
-      },
-    });
-  } catch (error) {
-    next(error);
-  }
-}
+  res.json({
+    data: {
+      bookingId: String(booking._id),
+    },
+  });
+});
 
 /**
  * Handles POST /api/bookings/magic-link/resend. Always returns the
@@ -278,79 +176,52 @@ export async function exchangeMagicLinkController(
  * from the rate limit is the one exception: it's safe to expose since
  * it reveals nothing about whether the contact matches anything.
  */
-export async function resendMagicLinkController(
-  req: Request,
-  res: Response,
-  next: NextFunction,
-): Promise<void> {
-  try {
-    const { contact } = req.body;
+export const resendMagicLinkController = asyncHandler(async (req, res) => {
+  const { contact } = req.body;
 
-    if (typeof contact !== 'string' || !contact.trim()) {
-      res.status(400).json({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Please check the highlighted fields.',
-          fields: { contact: 'Contact is required.' },
-        },
-      });
-      return;
-    }
+  const withinLimit = await checkResendRateLimit(
+    req.ip ?? 'unknown',
+    contact,
+  );
 
-    const withinLimit = await checkResendRateLimit(
-      req.ip ?? 'unknown',
-      contact,
-    );
-
-    if (!withinLimit) {
-      res.status(429).json({
-        error: {
-          code: 'RATE_LIMITED',
-          message: 'Too many requests. Please try again later.',
-        },
-      });
-      return;
-    }
-
-    await resendMagicLink(contact);
-
-    res.status(200).json({
-      data: {
-        message:
-          'If that contact matches an upcoming booking, a link has been sent.',
+  if (!withinLimit) {
+    res.status(429).json({
+      error: {
+        code: 'RATE_LIMITED',
+        message: 'Too many requests. Please try again later.',
       },
     });
-  } catch (error) {
-    next(error);
+    return;
   }
-}
 
-export async function getCustomerBookingController(
-  req: Request,
-  res: Response,
-  next: NextFunction,
-): Promise<void> {
-  try {
-    if (!req.bookingAccess) {
-      throw new AppError(
-        401,
-        'BOOKING_ACCESS_REQUIRED',
-        'Booking access is required.',
-      );
-    }
+  await resendMagicLink(contact);
 
-    const booking = await getBookingForCustomer(
-      req.bookingAccess.bookingId,
+  res.status(200).json({
+    data: {
+      message:
+        'If that contact matches an upcoming booking, a link has been sent.',
+    },
+  });
+});
+
+export const getCustomerBookingController = asyncHandler(async (req, res) => {
+  if (!req.bookingAccess) {
+    throw new AppError(
+      401,
+      'BOOKING_ACCESS_REQUIRED',
+      'Booking access is required.',
     );
-
-    res.json({
-      data: {
-        ...booking.booking,
-        slot:booking.slot,
-        accessTier: req.bookingAccess.tier,
-      },
-    });
-  } catch (error) {
-    next(error);
   }
-}
+
+  const booking = await getBookingForCustomer(
+    req.bookingAccess.bookingId,
+  );
+
+  res.json({
+    data: {
+      ...booking.booking,
+      slot:booking.slot,
+      accessTier: req.bookingAccess.tier,
+    },
+  });
+});

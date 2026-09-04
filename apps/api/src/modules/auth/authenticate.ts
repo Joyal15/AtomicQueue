@@ -1,7 +1,6 @@
-import type { RequestHandler } from 'express';
-
 import type { AuthenticatedUser } from '@queueless/shared-types';
 
+import { asyncHandler } from '../../lib/asyncHandler.js';
 import { UserModel } from './auth.model.js';
 import { getSession, refreshSession } from './auth.session.js';
 
@@ -58,26 +57,22 @@ export async function resolveAuthenticatedUser(
   };
 }
 
-export const authenticate: RequestHandler = async (req, res, next) => {
-  try {
-    const sessionId = req.cookies?.[SESSION_COOKIE_NAME];
-    const user = await resolveAuthenticatedUser(sessionId);
+export const authenticate = asyncHandler(async (req, res, next) => {
+  const sessionId = req.cookies?.[SESSION_COOKIE_NAME];
+  const user = await resolveAuthenticatedUser(sessionId);
 
-    if (!user) {
-      res.status(401).json({
-        error: {
-          code: 'UNAUTHENTICATED',
-          message: 'Authentication required.',
-        },
-      });
-      return;
-    }
-
-    req.user = user;
-    req.sessionId = sessionId;
-
-    next();
-  } catch (error) {
-    next(error);
+  if (!user) {
+    res.status(401).json({
+      error: {
+        code: 'UNAUTHENTICATED',
+        message: 'Authentication required.',
+      },
+    });
+    return;
   }
-};
+
+  req.user = user;
+  req.sessionId = sessionId;
+
+  next();
+});

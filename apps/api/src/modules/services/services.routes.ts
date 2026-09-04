@@ -1,6 +1,7 @@
 import { Router } from 'express';
 
 import { authenticate } from '../auth/index.js';
+import { validate } from '../../middleware/validate.js';
 
 import {
   createServiceController,
@@ -8,6 +9,8 @@ import {
   getServiceByIdController,
   updateServiceController,
   deactivateServiceController,
+  createServiceSchema,
+  updateServiceSchema,
 } from './services.controller.js';
 
 const router = Router();
@@ -18,7 +21,7 @@ const router = Router();
 router.use(authenticate);
 
 // Create a new service.
-router.post('/', createServiceController);
+router.post('/', validate(createServiceSchema), createServiceController);
 
 // Get all services for a business.
 router.get('/', getServicesController);
@@ -27,7 +30,7 @@ router.get('/', getServicesController);
 router.get('/:serviceId', getServiceByIdController);
 
 // Update an existing service.
-router.patch('/:serviceId',updateServiceController);
+router.patch('/:serviceId', validate(updateServiceSchema), updateServiceController);
 
 // Deactivate an existing service.
 router.delete('/:serviceId', deactivateServiceController);

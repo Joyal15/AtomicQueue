@@ -6,33 +6,25 @@
  * before it can do anything.
  */
 
-import type { NextFunction, Request, Response } from 'express';
+import { asyncHandler } from '../../lib/asyncHandler.js';
 
 import { getBusinessBySlug } from './tenants.service.js';
 
-export async function getPublicBusiness(
-  req: Request<{ slug: string }>,
-  res: Response,
-  next: NextFunction,
-) {
-  try {
-    const business = await getBusinessBySlug(req.params.slug);
+export const getPublicBusiness = asyncHandler<{ slug: string }>(async (req, res) => {
+  const business = await getBusinessBySlug(req.params.slug);
 
-    if (!business) {
-      res.status(404).json({
-        error: { code: 'NOT_FOUND', message: 'Business not found' },
-      });
-      return;
-    }
-
-    res.status(200).json({
-      data: {
-        id: business.id,
-        name: business.name,
-        slug: business.slug,
-      },
+  if (!business) {
+    res.status(404).json({
+      error: { code: 'NOT_FOUND', message: 'Business not found' },
     });
-  } catch (error) {
-    next(error);
+    return;
   }
-}
+
+  res.status(200).json({
+    data: {
+      id: business.id,
+      name: business.name,
+      slug: business.slug,
+    },
+  });
+});

@@ -1,10 +1,12 @@
 import type { RequestHandler } from 'express';
 
+import { asyncHandler } from '../../lib/asyncHandler.js';
+
 import {
   acceptStaffInvitation,
-  login , 
-  logout, 
-  logoutEverywhere, 
+  login ,
+  logout,
+  logoutEverywhere,
   signupOwner,
 } from './auth.service.js';
 
@@ -18,133 +20,105 @@ export const getAuthStatus: RequestHandler = (_req, res) => {
   });
 };
 
-export const signupOwnerController: RequestHandler = async (req, res, next) => {
-  try {
-    const result = await signupOwner({
-      name: req.body.name,
-      email: req.body.email,
-      password: req.body.password,
-      businessName: req.body.businessName,
-    });
+export const signupOwnerController = asyncHandler(async (req, res) => {
+  const result = await signupOwner({
+    name: req.body.name,
+    email: req.body.email,
+    password: req.body.password,
+    businessName: req.body.businessName,
+  });
 
-    res.cookie(SESSION_COOKIE_NAME, result.sessionId, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'strict',
-      maxAge: SESSION_COOKIE_MAX_AGE,
-    });
+  res.cookie(SESSION_COOKIE_NAME, result.sessionId, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'strict',
+    maxAge: SESSION_COOKIE_MAX_AGE,
+  });
 
-    res.status(201).json({
-      data: {
-        user: result.user,
-        business: result.business,
+  res.status(201).json({
+    data: {
+      user: result.user,
+      business: result.business,
+    },
+  });
+});
+
+export const loginController = asyncHandler(async (req, res) => {
+  const result = await login({
+    email: req.body.email,
+    password: req.body.password,
+    ipAddress: req.ip ?? 'unknown',
+  });
+
+  res.cookie(SESSION_COOKIE_NAME, result.sessionId, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'strict',
+    maxAge: SESSION_COOKIE_MAX_AGE,
+  });
+
+  res.status(200).json({
+    data: {
+      user: result.user,
+    },
+  });
+});
+
+export const logoutController = asyncHandler(async (req, res) => {
+  const sessionId = req.cookies?.[SESSION_COOKIE_NAME];
+
+  if (sessionId) {
+    await logout(sessionId);
+  }
+
+  res.clearCookie(SESSION_COOKIE_NAME, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'strict',
+  });
+
+  res.status(204).send();
+});
+
+export const logoutEverywhereController = asyncHandler(async (req, res) => {
+  if (!req.user) {
+    res.status(401).json({
+      error: {
+        code: 'UNAUTHENTICATED',
+        message: 'Authentication required.',
       },
     });
-  } catch (error) {
-    next(error);
+    return;
   }
-};
 
-export const loginController: RequestHandler = async (req, res, next) => {
-  try {
-    const result = await login({
-      email: req.body.email,
-      password: req.body.password,
-      ipAddress: req.ip ?? 'unknown',
-    });
+  await logoutEverywhere(req.user.userId);
 
-    res.cookie(SESSION_COOKIE_NAME, result.sessionId, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'strict',
-      maxAge: SESSION_COOKIE_MAX_AGE,
-    });
+  res.clearCookie(SESSION_COOKIE_NAME, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'strict',
+  });
 
-    res.status(200).json({
-      data: {
-        user: result.user,
-      },
-    });
-  } catch (error) {
-    next(error);
-  }
-};
+  res.status(204).send();
+});
 
-export const logoutController: RequestHandler = async (req, res, next) => {
-  try {
-    const sessionId = req.cookies?.[SESSION_COOKIE_NAME];
+export const acceptStaffInvitationController = asyncHandler(async (req, res) => {
+  const result = await acceptStaffInvitation({
+    token: req.params.token as string,
+    name: req.body.name,
+    password: req.body.password,
+  });
 
-    if (sessionId) {
-      await logout(sessionId);
-    }
+  res.cookie(SESSION_COOKIE_NAME, result.sessionId, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "strict",
+    maxAge: SESSION_COOKIE_MAX_AGE,
+  });
 
-    res.clearCookie(SESSION_COOKIE_NAME, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'strict',
-    });
-
-    res.status(204).send();
-  } catch (error) {
-    next(error);
-  }
-};
-
-export const logoutEverywhereController: RequestHandler = async (
-  req,
-  res,
-  next,
-) => {
-  try {
-    if (!req.user) {
-      res.status(401).json({
-        error: {
-          code: 'UNAUTHENTICATED',
-          message: 'Authentication required.',
-        },
-      });
-      return;
-    }
-
-    await logoutEverywhere(req.user.userId);
-
-    res.clearCookie(SESSION_COOKIE_NAME, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'strict',
-    });
-
-    res.status(204).send();
-  } catch (error) {
-    next(error);
-  }
-};
-
-export const acceptStaffInvitationController: RequestHandler = async (
-  req,
-  res,
-  next,
-) => {
-  try {
-    const result = await acceptStaffInvitation({
-      token: req.params.token as string,
-      name: req.body.name,
-      password: req.body.password,
-    });
-
-    res.cookie(SESSION_COOKIE_NAME, result.sessionId, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "strict",
-      maxAge: SESSION_COOKIE_MAX_AGE,
-    });
-
-    res.status(200).json({
-      data: {
-        user: result.user,
-      },
-    });
-  } catch (error) {
-    next(error);
-  }
-};
+  res.status(200).json({
+    data: {
+      user: result.user,
+    },
+  });
+});
