@@ -7,6 +7,8 @@ const navItems = [
   { to: '/dashboard', label: 'Overview', end: true },
   { to: '/dashboard/services', label: 'Services', end: false },
   { to: '/dashboard/staff', label: 'Staff', end: false },
+  { to: '/dashboard/schedule', label: 'Schedule', end: false },
+  { to: '/dashboard/walk-in', label: 'Walk-in booking', end: false },
 ]
 
 /**

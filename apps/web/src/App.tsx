@@ -8,6 +8,8 @@ import { DashboardLayout } from '@/features/tenants/DashboardLayout'
 import { DashboardOverviewPage } from '@/features/tenants/DashboardOverviewPage'
 import { ServicesPage } from '@/features/tenants/ServicesPage'
 import { StaffPage } from '@/features/tenants/StaffPage'
+import { SchedulePage } from '@/features/bookings/SchedulePage'
+import { WalkInBookingPage } from '@/features/bookings/WalkInBookingPage'
 
 function App() {
   const { status } = useAuth()
@@ -22,6 +24,8 @@ function App() {
           <Route index element={<DashboardOverviewPage />} />
           <Route path="services" element={<ServicesPage />} />
           <Route path="staff" element={<StaffPage />} />
+          <Route path="schedule" element={<SchedulePage />} />
+          <Route path="walk-in" element={<WalkInBookingPage />} />
         </Route>
       </Route>
 

@@ -16,6 +16,12 @@ export default defineConfig({
     // serve the API in dev. Update the target if the backend's PORT is overridden.
     proxy: {
       '/api': 'http://localhost:4000',
+      // Socket.IO's default path — same same-origin-in-dev reasoning as
+      // /api above, plus ws:true so the upgrade to a websocket proxies too.
+      '/socket.io': {
+        target: 'http://localhost:4000',
+        ws: true,
+      },
     },
   },
 })
