@@ -11,6 +11,7 @@ export {
   createBusiness,
   getBusinessById,
   getBusinessBySlug,
+  listBusinessIds,
   updateBusiness,
   type CreateBusinessInput,
   type UpdateBusinessInput,

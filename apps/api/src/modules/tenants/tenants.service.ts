@@ -96,6 +96,18 @@ export async function getBusinessById(
 }
 
 /**
+ * Lists every business's id. Only for the generate-weekly-slots
+ * scheduled job to iterate all tenants — no per-request caller needs
+ * this, so it deliberately doesn't take a filter or return full
+ * business docs.
+ */
+export async function listBusinessIds(): Promise<string[]> {
+  const businesses = await BusinessModel.find().select({ _id: 1 }).lean();
+
+  return businesses.map((business) => String(business._id));
+}
+
+/**
  * Returns one business by its public slug — how an anonymous caller
  * (the public booking page) looks a business up, since it never has
  * a businessId to work with.

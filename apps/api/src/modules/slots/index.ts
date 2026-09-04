@@ -9,6 +9,7 @@ export {
   getAvailableSlots,
   getPublicAvailabilityBuckets,
   blockSlot,
+  confirmAvailableSlot,
   claimSlot,
   releaseHeldSlot,
   confirmHeldSlot,
@@ -20,6 +21,7 @@ export {
   type PublicAvailabilityBucket,
   type BlockSlotError,
   type BlockSlotResult,
+  type ConfirmAvailableSlotResult,
   type ClaimSlotResult,
 } from './slots.service.js';
 

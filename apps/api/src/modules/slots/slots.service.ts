@@ -578,6 +578,70 @@ export async function blockSlot(
   };
 }
 
+export interface ConfirmAvailableSlotResult {
+  slotId: string;
+}
+
+/**
+ * Directly confirms one available slot for (businessId, providerId,
+ * providerType, serviceId, datetime) — the staff/owner walk-in path
+ * (architecture doc §3). A separate transition from claimSlot: skips
+ * `held` entirely (`holdVersion` is left untouched — still whatever it
+ * already was, i.e. null, since the doc is currently 'available'), no
+ * Redis, no Mongo transaction. A walk-in has no "customer might
+ * abandon the tab" race to guard against, so the single atomic
+ * conditional write below is already sufficient on its own (§4c) —
+ * there's no multi-step claim-then-confirm sequence here to protect.
+ *
+ * Same identifying tuple as claimSlot, not a specific slotId: for a
+ * capacity-N resource there are N interchangeable available units at
+ * this provider+datetime, and the caller can't (and shouldn't) know
+ * which one it lands on.
+ */
+export async function confirmAvailableSlot(
+  businessId: string,
+  providerId: string,
+  providerType: ProviderType,
+  serviceId: string,
+  datetime: Date | string,
+): Promise<ConfirmAvailableSlotResult | null> {
+  const parsedDatetime = new Date(datetime);
+
+  if (Number.isNaN(parsedDatetime.getTime())) {
+    return null;
+  }
+
+  const slot = await SlotModel.findOneAndUpdate(
+    {
+      businessId,
+      providerId,
+      providerType,
+      serviceId,
+      datetime: parsedDatetime,
+      status: 'available',
+    },
+    {
+      status: 'confirmed',
+    },
+    { new: true },
+  )
+    .select({ _id: 1 })
+    .lean();
+
+  if (!slot) {
+    return null;
+  }
+
+  const slotId = String(slot._id);
+
+  emitSlotUpdate(businessId, {
+    slotId,
+    status: 'confirmed',
+  });
+
+  return { slotId };
+}
+
 export type ClaimSlotResult =
   | {
       ok: true;
