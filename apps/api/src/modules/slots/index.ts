@@ -8,6 +8,7 @@ export {
   listSlots,
   getAvailableSlots,
   getPublicAvailabilityBuckets,
+  getRemainingCapacity,
   blockSlot,
   confirmAvailableSlot,
   claimSlot,

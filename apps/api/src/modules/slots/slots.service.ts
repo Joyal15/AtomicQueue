@@ -578,6 +578,39 @@ export async function blockSlot(
   };
 }
 
+/**
+ * Counts how many 'available' units remain for one (businessId,
+ * providerId, providerType, serviceId, datetime) bucket — the same
+ * count the public availability aggregation reports (§4b), scoped to
+ * a single bucket instead of every future one. Always reads fresh
+ * after a write, never derived from that write's own result: a
+ * concurrent claim on a *different* unit in the same capacity-N
+ * bucket isn't visible to a single document's update result, only to
+ * a live re-count.
+ */
+export async function getRemainingCapacity(
+  businessId: string,
+  providerId: string,
+  providerType: ProviderType,
+  serviceId: string,
+  datetime: Date | string,
+): Promise<number> {
+  const parsedDatetime = new Date(datetime);
+
+  if (Number.isNaN(parsedDatetime.getTime())) {
+    return 0;
+  }
+
+  return SlotModel.countDocuments({
+    businessId,
+    providerId,
+    providerType,
+    serviceId,
+    datetime: parsedDatetime,
+    status: 'available',
+  });
+}
+
 export interface ConfirmAvailableSlotResult {
   slotId: string;
 }
@@ -634,9 +667,22 @@ export async function confirmAvailableSlot(
 
   const slotId = String(slot._id);
 
+  // A confirm permanently consumes one unit of public availability, so
+  // this is a bucket-count update (§4b), not a single-slot status ping
+  // — the customer browsing page never knew this slotId to begin with.
+  const remaining = await getRemainingCapacity(
+    businessId,
+    providerId,
+    providerType,
+    serviceId,
+    parsedDatetime,
+  );
+
   emitSlotUpdate(businessId, {
-    slotId,
-    status: 'confirmed',
+    providerId,
+    providerType,
+    datetime: parsedDatetime.toISOString(),
+    remaining,
   });
 
   return { slotId };

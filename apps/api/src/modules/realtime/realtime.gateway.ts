@@ -87,12 +87,15 @@ export function initRealtime(httpServer: HttpServer): Server {
 }
 
 /**
- * DRAFT event contract — not yet agreed with the bookings module.
- * Two shapes for the two cases the UI needs (architecture doc's own
- * sketch): a plain status flip for a capacity-1 slot, or a recomputed
- * remaining count for a capacity-N resource where individual units
- * aren't shown. Expect this to change once bookings actually starts
- * calling it.
+ * Locked event contract (agreed with the bookings module). Two shapes
+ * for the two cases the UI needs (architecture doc §4b): `{ slotId,
+ * status }` for a slot-specific status change (a hold forming/
+ * releasing, a manual block) — the staff dashboard patches that one
+ * row by id. `{ providerId, providerType, datetime, remaining }` for
+ * an action that permanently consumes a unit of public availability
+ * (a walk-in or booking confirm) — the customer browsing page only
+ * ever sees aggregate buckets, never an individual slotId, so it
+ * needs the bucket's updated count instead.
  */
 export type SlotUpdatePayload =
   | {
