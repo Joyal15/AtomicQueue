@@ -8,7 +8,8 @@ import {
   confirmAvailableSlot,
   confirmHeldSlot,
   releaseHeldSlot,
-  emitBookingConfirmationUpdate
+  emitBookingConfirmationUpdate,
+  getSlotById,
 } from '../slots/index.js';
 
 import { BookingModel } from './bookings.model.js';
@@ -500,4 +501,55 @@ export async function listBookings(
     createdAt: booking.createdAt.toISOString(),
     cancelledAt: booking.cancelledAt?.toISOString() ?? null,
   }));
+}
+
+export async function getBookingForCustomer(
+  bookingId: string,
+): Promise<{
+  booking: BookingListItem;
+  slot: Awaited<ReturnType<typeof getSlotById>>;
+}> {
+  const booking = await BookingModel.findById(bookingId).lean();
+
+  if (!booking) {
+    throw new AppError(
+      404,
+      'BOOKING_NOT_FOUND',
+      'Booking not found.',
+    );
+  }
+
+  const slot = await getSlotById(
+    booking.businessId,
+    booking.slotId,
+  );
+
+  if (!slot) {
+    throw new AppError(
+      404,
+      'BOOKING_NOT_FOUND',
+      'Booking not found.',
+    );
+  }
+
+  return {
+    booking: {
+      id: String(booking._id),
+      businessId: booking.businessId,
+      slotId: booking.slotId,
+      customer: {
+        name: booking.customer.name,
+        contactType: booking.customer.contactType,
+        contact: booking.customer.contact,
+      },
+      createdBy: booking.createdBy,
+      status: booking.status,
+      accessTokenExpiresAt:
+        booking.accessTokenExpiresAt?.toISOString() ?? null,
+      noShowRiskNote: booking.noShowRiskNote,
+      createdAt: booking.createdAt.toISOString(),
+      cancelledAt: booking.cancelledAt?.toISOString() ?? null,
+    },
+    slot,
+  };
 }

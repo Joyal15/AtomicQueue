@@ -105,3 +105,31 @@ export const requireBookingAccess: RequestHandler = async (
     next(error);
   }
 };
+
+export const requireBookingManagement: RequestHandler = async (
+  req,
+  _res,
+  next,
+) => {
+  try {
+    if (!req.bookingAccess) {
+      throw new AppError(
+        401,
+        'BOOKING_ACCESS_REQUIRED',
+        'Booking access is required.',
+      );
+    }
+
+    if (req.bookingAccess.tier !== 'manage') {
+      throw new AppError(
+        403,
+        'BOOKING_MANAGEMENT_CLOSED',
+        'Booking management is no longer available.',
+      );
+    }
+
+    next();
+  } catch (error) {
+    next(error);
+  }
+};

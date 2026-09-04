@@ -8,7 +8,10 @@ import {
   getBookings,
   createWalkInBookingController,
   exchangeMagicLinkController,
+  getCustomerBookingController,
 } from './bookings.controller.js';
+
+import { requireBookingAccess } from './booking-access.js';
 
 const bookingsRouter = Router();
 
@@ -17,6 +20,12 @@ bookingsRouter.get('/status', getBookingsStatus);
 bookingsRouter.post(
   '/magic-link/exchange',
   exchangeMagicLinkController,
+);
+
+bookingsRouter.get(
+  '/manage',
+  requireBookingAccess,
+  getCustomerBookingController,
 );
 
 bookingsRouter.post(

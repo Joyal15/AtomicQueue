@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 
 import { AppError } from '../../lib/Apperror.js';
-import { confirmBooking , createWalkInBooking, listBookings} from './bookings.service.js';
+import { confirmBooking , createWalkInBooking, listBookings, getBookingForCustomer} from './bookings.service.js';
 import {
   exchangeMagicLink,
   setBookingAccessCookie,
@@ -262,6 +262,36 @@ export async function exchangeMagicLinkController(
     res.json({
       data: {
         bookingId: String(booking._id),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getCustomerBookingController(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    if (!req.bookingAccess) {
+      throw new AppError(
+        401,
+        'BOOKING_ACCESS_REQUIRED',
+        'Booking access is required.',
+      );
+    }
+
+    const booking = await getBookingForCustomer(
+      req.bookingAccess.bookingId,
+    );
+
+    res.json({
+      data: {
+        ...booking.booking,
+        slot:booking.slot,
+        accessTier: req.bookingAccess.tier,
       },
     });
   } catch (error) {
