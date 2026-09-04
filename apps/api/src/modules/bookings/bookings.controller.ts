@@ -1,7 +1,13 @@
-import type { Request, Response } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 
 import { AppError } from '../../lib/Apperror.js';
 import { confirmBooking , createWalkInBooking, listBookings} from './bookings.service.js';
+import {
+  exchangeMagicLink,
+  setBookingAccessCookie,
+} from './magic-link.service.js';
+
+
 
 export async function createBooking(
   req: Request,
@@ -220,4 +226,45 @@ export async function createWalkInBookingController(
   res.status(201).json({
     data: result,
   });
+}
+
+export async function exchangeMagicLinkController(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const { bookingId, token } = req.body;
+
+    if (
+      typeof bookingId !== 'string' ||
+      typeof token !== 'string' ||
+      !bookingId ||
+      !token
+    ) {
+      res.status(400).json({
+        error: {
+          code: 'INVALID_REQUEST',
+          message: 'bookingId and token are required.',
+        },
+      });
+      return;
+    }
+
+    const booking = await exchangeMagicLink(bookingId, token);
+
+    setBookingAccessCookie(
+      res,
+      bookingId,
+      token,
+    );
+
+    res.json({
+      data: {
+        bookingId: String(booking._id),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
 }

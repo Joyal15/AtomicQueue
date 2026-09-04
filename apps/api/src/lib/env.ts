@@ -10,6 +10,7 @@ const envSchema = z.object({
   // Signs/verifies the session cookie (sessions are stored in Redis, not JWT).
   SESSION_COOKIE_SECRET: z.string().min(1, 'SESSION_COOKIE_SECRET is required'),
   SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(604800), // 7-day sliding TTL
+  MAGIC_LINK_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
 });
 
 const result = envSchema.safeParse(process.env);

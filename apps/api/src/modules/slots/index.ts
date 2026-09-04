@@ -6,6 +6,7 @@
 export {
   generateWeeklySlots,
   listSlots,
+  getSlotById,
   getAvailableSlots,
   getPublicAvailabilityBuckets,
   getRemainingCapacity,

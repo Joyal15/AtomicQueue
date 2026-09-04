@@ -7,11 +7,17 @@ import {
   getBookingsStatus,
   getBookings,
   createWalkInBookingController,
+  exchangeMagicLinkController,
 } from './bookings.controller.js';
 
 const bookingsRouter = Router();
 
 bookingsRouter.get('/status', getBookingsStatus);
+
+bookingsRouter.post(
+  '/magic-link/exchange',
+  exchangeMagicLinkController,
+);
 
 bookingsRouter.post(
   '/',

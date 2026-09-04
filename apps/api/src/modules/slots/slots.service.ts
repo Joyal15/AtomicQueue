@@ -432,6 +432,36 @@ export async function listSlots(
   return slots.map(toSlotApiShape);
 }
 
+export async function getSlotById(
+  businessId: string,
+  slotId: string,
+): Promise<{
+  id: string;
+  businessId: string;
+  providerId: string;
+  providerType: ProviderType;
+  serviceId: string;
+  datetime: string;
+  durationMinutes: number;
+  unitIndex: number;
+  status: SlotStatus;
+} | null> {
+  if (!Types.ObjectId.isValid(slotId)) {
+    return null;
+  }
+
+  const slot = await SlotModel.findOne({
+    _id: slotId,
+    businessId,
+  }).lean();
+
+  if (!slot) {
+    return null;
+  }
+
+  return toSlotApiShape(slot);
+}
+
 export interface GetAvailableSlotsFilter {
   providerId?: string;
   providerType?: ProviderType;
