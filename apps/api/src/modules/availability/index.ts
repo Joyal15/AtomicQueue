@@ -25,3 +25,8 @@ export {
 // HTTP router, mounted under `/api/availability` by the top-level routes
 // barrel.
 export { default as availabilityRouter } from './availability.routes.js';
+
+// Public (unauthenticated) availability router — owns its own top-level
+// path (`/businesses/:slug/availability`), not nested under the mount
+// above. See publicAvailability.routes.ts.
+export { default as publicAvailabilityRouter } from './publicAvailability.routes.js';

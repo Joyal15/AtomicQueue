@@ -452,6 +452,89 @@ export async function getAvailableSlots(
   return listSlots(businessId, { ...filter, status: 'available' });
 }
 
+export interface PublicAvailabilityFilter {
+  serviceId?: string;
+  providerId?: string;
+  providerType?: ProviderType;
+}
+
+export interface PublicAvailabilityBucket {
+  providerId: string;
+  providerType: ProviderType;
+  serviceId: string;
+  datetime: string;
+  durationMinutes: number;
+  /** Total units generated for this provider+time — a resource's capacity, or 1 for staff. */
+  total: number;
+  /** Units still status: 'available'. Never a specific unit — units aren't distinguishable to a customer. */
+  remaining: number;
+}
+
+/**
+ * Public, unauthenticated browsing view. Groups Slots by
+ * (providerId, providerType, datetime) and reports remaining vs.
+ * total capacity per bucket (e.g. "2 of 3 left") instead of exposing
+ * individual anonymous slot documents — a customer picks a time, never
+ * a specific interchangeable unit (architecture doc §4b).
+ *
+ * `datetime >= now` is applied fresh on every call, not stored — a
+ * slot's bookability from a customer's perspective is always computed
+ * live (§4b's past-slot-filtering rule), same as everywhere else this
+ * project checks it.
+ */
+export async function getPublicAvailabilityBuckets(
+  businessId: string,
+  filter: PublicAvailabilityFilter = {},
+): Promise<PublicAvailabilityBucket[]> {
+  const match: Record<string, unknown> = {
+    businessId,
+    datetime: { $gte: new Date() },
+  };
+
+  if (filter.serviceId !== undefined) match.serviceId = filter.serviceId;
+  if (filter.providerId !== undefined) match.providerId = filter.providerId;
+  if (filter.providerType !== undefined) match.providerType = filter.providerType;
+
+  const buckets = await SlotModel.aggregate<{
+    _id: { providerId: string; providerType: ProviderType; datetime: Date };
+    serviceId: string;
+    durationMinutes: number;
+    total: number;
+    remaining: number;
+  }>([
+    { $match: match },
+    {
+      $group: {
+        _id: {
+          providerId: '$providerId',
+          providerType: '$providerType',
+          datetime: '$datetime',
+        },
+        // All units in one bucket come from the same generation run
+        // (same template), so serviceId/durationMinutes are uniform —
+        // $first is just picking the one value, not an approximation.
+        serviceId: { $first: '$serviceId' },
+        durationMinutes: { $first: '$durationMinutes' },
+        total: { $sum: 1 },
+        remaining: {
+          $sum: { $cond: [{ $eq: ['$status', 'available'] }, 1, 0] },
+        },
+      },
+    },
+    { $sort: { '_id.datetime': 1 } },
+  ]);
+
+  return buckets.map((bucket) => ({
+    providerId: bucket._id.providerId,
+    providerType: bucket._id.providerType,
+    serviceId: bucket.serviceId,
+    datetime: bucket._id.datetime.toISOString(),
+    durationMinutes: bucket.durationMinutes,
+    total: bucket.total,
+    remaining: bucket.remaining,
+  }));
+}
+
 export type BlockSlotError = 'SLOT_NOT_FOUND' | 'SLOT_NOT_AVAILABLE';
 
 export type BlockSlotResult =

@@ -10,6 +10,7 @@ export { default as tenantsRouter } from './tenants.routes.js';
 export {
   createBusiness,
   getBusinessById,
+  getBusinessBySlug,
   updateBusiness,
   type CreateBusinessInput,
   type UpdateBusinessInput,

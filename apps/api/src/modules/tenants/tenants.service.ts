@@ -96,6 +96,23 @@ export async function getBusinessById(
 }
 
 /**
+ * Returns one business by its public slug — how an anonymous caller
+ * (the public booking page) looks a business up, since it never has
+ * a businessId to work with.
+ */
+export async function getBusinessBySlug(
+  slug: string,
+): Promise<Business | null> {
+  const business = await BusinessModel.findOne({ slug });
+
+  if (!business) {
+    return null;
+  }
+
+  return toBusiness(business);
+}
+
+/**
  * Input required to update a business.
  *
  * `slug` and `ownerId` are not editable here — there is no supported flow
