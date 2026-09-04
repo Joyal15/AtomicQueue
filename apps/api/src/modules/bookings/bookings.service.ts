@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import mongoose, { type ClientSession } from 'mongoose';
-import { AppError } from '../../lib/Apperror.js';``
+import { AppError } from '../../lib/Apperror.js';
 
 import { redis } from '../../lib/redis.js';
 import {
@@ -8,8 +8,8 @@ import {
   confirmAvailableSlot,
   confirmHeldSlot,
   releaseHeldSlot,
+  emitBookingConfirmationUpdate
 } from '../slots/index.js';
-import { emitSlotUpdate } from '../realtime/index.js';
 
 import { BookingModel } from './bookings.model.js';
 
@@ -383,16 +383,22 @@ export async function confirmBooking(
       bookingId = String(booking[0]._id);
     });
 
+
     /*
      * Mongo committed successfully.
-     *
+     */
+    await emitBookingConfirmationUpdate(
+      input.businessId,
+      input.providerId,
+      input.providerType,
+      input.serviceId,
+      input.datetime,
+    );
+    /*
      * Redis is now only cleanup. If this fails, the TTL will eventually
      * remove the hold, and the booking remains valid.
      */
-    emitSlotUpdate(input.businessId, {
-      slotId,
-      status: 'confirmed',
-    });
+    
     try {
       await deleteRedisHold(
         slotId,

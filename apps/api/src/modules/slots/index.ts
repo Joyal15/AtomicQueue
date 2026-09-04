@@ -14,6 +14,7 @@ export {
   claimSlot,
   releaseHeldSlot,
   confirmHeldSlot,
+  emitBookingConfirmationUpdate,
   type GenerateSlotsOptions,
   type GenerateSlotsResult,
   type ListSlotsFilter,

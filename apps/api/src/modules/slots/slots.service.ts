@@ -611,6 +611,35 @@ export async function getRemainingCapacity(
   });
 }
 
+export async function emitBookingConfirmationUpdate(
+  businessId: string,
+  providerId: string,
+  providerType: ProviderType,
+  serviceId: string,
+  datetime: Date | string,
+): Promise<void> {
+  const parsedDatetime = new Date(datetime);
+
+  if (Number.isNaN(parsedDatetime.getTime())) {
+    return;
+  }
+
+  const remaining = await getRemainingCapacity(
+    businessId,
+    providerId,
+    providerType,
+    serviceId,
+    parsedDatetime,
+  );
+
+  emitSlotUpdate(businessId, {
+    providerId,
+    providerType,
+    datetime: parsedDatetime.toISOString(),
+    remaining,
+  });
+}
+
 export interface ConfirmAvailableSlotResult {
   slotId: string;
 }
