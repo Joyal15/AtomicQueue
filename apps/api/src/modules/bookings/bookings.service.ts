@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import mongoose, { type ClientSession } from 'mongoose';
+import { AppError } from '../../lib/Apperror.js';``
 
 import { redis } from '../../lib/redis.js';
 import {
@@ -202,7 +203,11 @@ async function claimAndHold(
          * unsafe compensating write here. The fencing token makes the
          * state recoverable by the normal stale-hold cleanup path.
          */
-        throw new Error('SLOT_HOLD_FAILED');
+        throw new AppError(
+          500,
+          'SLOT_HOLD_FAILED',
+          'Unable to hold the selected slot. Please try again.',
+        );
       }
 
       return {
@@ -212,7 +217,11 @@ async function claimAndHold(
     }
 
     if (claim.error === 'SLOT_NOT_AVAILABLE') {
-      throw new Error('SLOT_NOT_AVAILABLE');
+      throw new AppError(
+        409,
+        'SLOT_NOT_AVAILABLE',
+        'The selected slot is no longer available.',
+      );
     }
 
     /*
@@ -227,7 +236,11 @@ async function claimAndHold(
       redisHold &&
       redisHold.holdVersion === claim.holdVersion
     ) {
-      throw new Error('SLOT_NOT_AVAILABLE');
+      throw new AppError(
+        409,
+        'SLOT_NOT_AVAILABLE',
+        'The selected slot is no longer available.',
+      );
     }
 
     await releaseHeldSlot(
@@ -236,7 +249,11 @@ async function claimAndHold(
     );
   }
 
-  throw new Error('SLOT_NOT_AVAILABLE');
+  throw new AppError(
+    409,
+    'SLOT_NOT_AVAILABLE',
+    'The selected slot is no longer available.',
+  );
 }
 
 /**
@@ -263,7 +280,11 @@ export async function confirmBooking(
     hold.sessionId !== input.sessionId ||
     hold.holdVersion !== holdVersion
   ) {
-    throw new Error('SLOT_HOLD_EXPIRED');
+    throw new AppError(
+      409,
+      'SLOT_HOLD_EXPIRED',
+      'The slot hold has expired. Please select the slot again.',
+    );
   }
 
   const rawAccessToken = randomBytes(32).toString('base64url');
@@ -294,7 +315,11 @@ export async function confirmBooking(
       );
 
       if (!confirmed) {
-        throw new Error('SLOT_HOLD_EXPIRED');
+        throw new AppError(
+          409,
+          'SLOT_HOLD_EXPIRED',
+          'The slot hold has expired. Please select the slot again.',
+        );
       }
 
       const booking = await BookingModel.create(
