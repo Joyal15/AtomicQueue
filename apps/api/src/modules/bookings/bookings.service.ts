@@ -5,6 +5,7 @@ import { AppError } from '../../lib/Apperror.js';``
 import { redis } from '../../lib/redis.js';
 import {
   claimSlot,
+  confirmAvailableSlot,
   confirmHeldSlot,
   releaseHeldSlot,
 } from '../slots/index.js';
@@ -72,6 +73,21 @@ export interface BookingListItem {
   noShowRiskNote: string | null;
   createdAt: string;
   cancelledAt: string | null;
+}
+
+
+export interface WalkInBookingInput {
+  businessId: string;
+  providerId: string;
+  providerType: ProviderType;
+  serviceId: string;
+  datetime: Date | string;
+  customer: {
+    name: string;
+    contactType: ContactType;
+    contact: string;
+  };
+  createdBy: string;
 }
 
 function getHoldKey(slotId: string): string {
@@ -391,6 +407,60 @@ export async function confirmBooking(
       await session.endSession();
     }
   }
+}
+
+
+export async function createWalkInBooking(
+  input: WalkInBookingInput,
+): Promise<{ bookingId: string }> {
+  const parsedDatetime = new Date(input.datetime);
+
+  if (Number.isNaN(parsedDatetime.getTime())) {
+    throw new AppError(
+      400,
+      'INVALID_REQUEST',
+      'Invalid booking datetime.',
+    );
+  }
+
+  const confirmedSlot = await confirmAvailableSlot(
+    input.businessId,
+    input.providerId,
+    input.providerType,
+    input.serviceId,
+    parsedDatetime,
+  );
+
+  if (!confirmedSlot) {
+    throw new AppError(
+      409,
+      'SLOT_NOT_AVAILABLE',
+      'The selected slot is no longer available.',
+    );
+  }
+
+  const booking = await BookingModel.create({
+    businessId: input.businessId,
+    slotId: confirmedSlot.slotId,
+    customer: {
+      name: input.customer.name.trim(),
+      contactType: input.customer.contactType,
+      contact: normalizeContact(
+        input.customer.contactType,
+        input.customer.contact,
+      ),
+    },
+    createdBy: input.createdBy,
+    status: 'confirmed',
+    accessTokenHash: undefined,
+    accessTokenExpiresAt: null,
+    noShowRiskNote: null,
+    cancelledAt: null,
+  });
+
+  return {
+    bookingId: String(booking._id),
+  };
 }
 
 export async function listBookings(

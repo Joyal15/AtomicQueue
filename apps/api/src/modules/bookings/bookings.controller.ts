@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 
 import { AppError } from '../../lib/Apperror.js';
-import { confirmBooking , listBookings} from './bookings.service.js';
+import { confirmBooking , createWalkInBooking, listBookings} from './bookings.service.js';
 
 export async function createBooking(
   req: Request,
@@ -131,5 +131,93 @@ export async function getBookings(
 
   res.json({
     data: bookings,
+  });
+}
+
+export async function createWalkInBookingController(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  if (!req.user) {
+    throw new AppError(
+      401,
+      'UNAUTHENTICATED',
+      'Authentication required.',
+    );
+  }
+
+  const {
+    providerId,
+    providerType,
+    serviceId,
+    datetime,
+    customer,
+  } = req.body;
+
+  if (
+    typeof providerId !== 'string' ||
+    typeof providerType !== 'string' ||
+    typeof serviceId !== 'string' ||
+    typeof datetime !== 'string'
+  ) {
+    throw new AppError(
+      400,
+      'INVALID_REQUEST',
+      'Invalid booking request.',
+    );
+  }
+
+  if (
+    providerType !== 'staff' &&
+    providerType !== 'resource'
+  ) {
+    throw new AppError(
+      400,
+      'INVALID_PROVIDER_TYPE',
+      'Invalid provider type.',
+    );
+  }
+
+  if (
+    typeof customer !== 'object' ||
+    customer === null ||
+    typeof customer.name !== 'string' ||
+    typeof customer.contactType !== 'string' ||
+    typeof customer.contact !== 'string'
+  ) {
+    throw new AppError(
+      400,
+      'INVALID_CUSTOMER',
+      'Invalid customer information.',
+    );
+  }
+
+  if (
+    customer.contactType !== 'email' &&
+    customer.contactType !== 'phone'
+  ) {
+    throw new AppError(
+      400,
+      'INVALID_CONTACT_TYPE',
+      'Contact type must be email or phone.',
+    );
+  }
+
+  const result = await createWalkInBooking({
+    businessId: req.user.businessId,
+    providerId,
+    providerType,
+    serviceId,
+    datetime,
+    customer: {
+      name: customer.name,
+      contactType: customer.contactType,
+      contact: customer.contact,
+    },
+    createdBy: req.user.userId,
+  });
+
+  res.status(201).json({
+    data: result,
   });
 }

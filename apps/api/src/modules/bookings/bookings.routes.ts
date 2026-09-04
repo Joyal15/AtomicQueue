@@ -6,6 +6,7 @@ import {
   createBooking,
   getBookingsStatus,
   getBookings,
+  createWalkInBookingController,
 } from './bookings.controller.js';
 
 const bookingsRouter = Router();
@@ -16,6 +17,12 @@ bookingsRouter.post(
   '/',
   authenticate,
   createBooking,
+);
+
+bookingsRouter.post(
+  '/walk-in',
+  authenticate,
+  createWalkInBookingController,
 );
 
 bookingsRouter.get(
