@@ -16,10 +16,12 @@ import {
   cancelStaffBookingController,
   rescheduleCustomerBookingController,
   rescheduleStaffBookingController,
+  updateBookingOutcomeController,
   createBookingSchema,
   exchangeMagicLinkSchema,
   resendMagicLinkSchema,
   rescheduleBookingSchema,
+  bookingOutcomeSchema,
 } from './bookings.controller.js';
 
 import {
@@ -84,6 +86,14 @@ bookingsRouter.post(
   requireAnyRole('owner', 'staff'),
   validate(rescheduleBookingSchema),
   rescheduleStaffBookingController,
+);
+
+bookingsRouter.post(
+  '/:bookingId/outcome',
+  authenticate,
+  requireAnyRole('owner', 'staff'),
+  validate(bookingOutcomeSchema),
+  updateBookingOutcomeController,
 );
 
 bookingsRouter.post(

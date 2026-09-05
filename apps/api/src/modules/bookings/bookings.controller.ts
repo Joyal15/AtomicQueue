@@ -1,4 +1,4 @@
-import type { Request, Response } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 
 import { asyncHandler } from '../../lib/asyncHandler.js';
@@ -10,6 +10,7 @@ import {
   getBookingForCustomer,
   cancelBooking,
   rescheduleBooking,
+  updateBookingOutcome,
 } from './bookings.service.js';
 
 import {
@@ -363,3 +364,43 @@ export const rescheduleStaffBookingController = asyncHandler(
     });
   },
 );
+
+export const bookingOutcomeSchema = z.object({
+  status: z.enum(['completed', 'no-show']),
+});
+
+export async function updateBookingOutcomeController(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const bookingId = req.params.bookingId;
+
+    if (!bookingId || Array.isArray(bookingId)) {
+      throw new AppError(
+        400,
+        'INVALID_BOOKING_ID',
+        'Invalid booking id.',
+      );
+    }
+
+    if (!req.user?.businessId) {
+      throw new AppError(
+        401,
+        'UNAUTHENTICATED',
+        'Authentication required.',
+      );
+    }
+
+    const result = await updateBookingOutcome(
+      req.user.businessId,
+      bookingId,
+      req.body.status,
+    );
+
+    res.json({ data: result });
+  } catch (error) {
+    next(error);
+  }
+}

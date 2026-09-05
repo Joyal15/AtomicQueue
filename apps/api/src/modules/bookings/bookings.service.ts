@@ -620,6 +620,73 @@ export async function cancelBooking(
   }
 }
 
+export type BookingOutcome = 'completed' | 'no-show';
+
+export interface UpdateBookingOutcomeResult {
+  bookingId: string;
+  status: BookingOutcome;
+}
+
+export async function updateBookingOutcome(
+  businessId: string,
+  bookingId: string,
+  status: BookingOutcome,
+): Promise<UpdateBookingOutcomeResult> {
+  if (!mongoose.Types.ObjectId.isValid(bookingId)) {
+    throw new AppError(
+      404,
+      'BOOKING_NOT_FOUND',
+      'Booking not found.',
+    );
+  }
+
+  const booking = await BookingModel.findOneAndUpdate(
+    {
+      _id: bookingId,
+      businessId,
+      status: 'confirmed',
+    },
+    {
+      $set: {
+        status,
+      },
+    },
+    {
+      new: true,
+    },
+  )
+    .select({ _id: 1, status: 1 })
+    .lean();
+
+  if (!booking) {
+    const existingBooking = await BookingModel.findOne({
+      _id: bookingId,
+      businessId,
+    })
+      .select({ _id: 1 })
+      .lean();
+
+    if (!existingBooking) {
+      throw new AppError(
+        404,
+        'BOOKING_NOT_FOUND',
+        'Booking not found.',
+      );
+    }
+
+    throw new AppError(
+      409,
+      'BOOKING_OUTCOME_NOT_ALLOWED',
+      'The booking is no longer awaiting an outcome.',
+    );
+  }
+
+  return {
+    bookingId: String(booking._id),
+    status: booking.status as BookingOutcome,
+  };
+}
+
 export interface RescheduleBookingInput {
   businessId: string;
   bookingId: string;
