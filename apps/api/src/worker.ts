@@ -1,5 +1,5 @@
 import { Worker } from 'bullmq';
-
+import { expireWaitlistEntry } from './modules/waitlist/index.js';
 import { connectDatabase } from './lib/db.js';
 import { logger } from './lib/logger.js';
 import { JOBS_QUEUE_NAME, jobsQueue, queueConnection } from './lib/queue.js';
@@ -13,6 +13,7 @@ import { generateWeeklySlots } from './modules/slots/index.js';
  */
 
 const GENERATE_WEEKLY_SLOTS_JOB = 'generate-weekly-slots';
+const WAITLIST_EXPIRE_CHECK_JOB = 'waitlist-expire-check';
 
 /**
  * Tops up every business's rolling slot-generation window (architecture
@@ -41,11 +42,25 @@ async function runGenerateWeeklySlots(): Promise<void> {
  * jobs (`send-transactional-email`, `process-hold-expiry`, etc.) add a
  * case to as they're built.
  */
-async function processJob(jobName: string): Promise<void> {
+async function processJob(
+  jobName: string,
+  data: Record<string, unknown>,
+): Promise<void> {
   switch (jobName) {
     case GENERATE_WEEKLY_SLOTS_JOB:
       await runGenerateWeeklySlots();
       break;
+    case WAITLIST_EXPIRE_CHECK_JOB: {
+      const entryId = data.entryId;
+
+      if (typeof entryId !== 'string' || !entryId) {
+        throw new Error('waitlist-expire-check requires entryId');
+      }
+
+      await expireWaitlistEntry(entryId);
+      break;
+    }
+
     default:
       logger.warn(`No handler registered for job "${jobName}"`);
   }
@@ -70,7 +85,7 @@ async function startWorker() {
   const worker = new Worker(
     JOBS_QUEUE_NAME,
     async (job) => {
-      await processJob(job.name);
+      await processJob(job.name,job.data);
     },
     { connection: queueConnection },
   );

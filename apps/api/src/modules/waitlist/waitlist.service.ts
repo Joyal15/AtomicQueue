@@ -6,6 +6,10 @@ import {
   WaitlistEntryModel,
   type WaitlistStatus,
 } from './waitlist.model.js';
+import { jobsQueue } from '../../lib/queue.js';
+
+const WAITLIST_NOTIFICATION_TTL_MS = 15 * 60 * 1000;
+const WAITLIST_EXPIRE_CHECK_JOB = 'waitlist-expire-check';
 
 export interface JoinWaitlistInput {
   businessId: string;
@@ -178,6 +182,7 @@ export async function markWaitlistEntryNotified(
     {
       $set: {
         status: 'notified',
+        notifiedAt: new Date(),
       },
     },
     {
@@ -189,7 +194,45 @@ export async function markWaitlistEntryNotified(
     return null;
   }
 
+  await jobsQueue.add(
+  WAITLIST_EXPIRE_CHECK_JOB,
+  {
+    entryId: String(entry._id),
+  },
+  {
+    delay: WAITLIST_NOTIFICATION_TTL_MS,
+    removeOnComplete: true,
+    removeOnFail: false,
+  },
+);
+
   return toWaitlistItem(entry);
+}
+
+export async function expireWaitlistEntry(
+  entryId: string,
+): Promise<boolean> {
+  const result = await WaitlistEntryModel.findOneAndUpdate(
+    {
+      _id: entryId,
+      status: 'notified',
+    },
+    {
+      $set: {
+        status: 'expired',
+      },
+      $unset: {
+        notifiedAt: 1,
+      },
+    },
+    {
+      new: false,
+    },
+  )
+    .select({ _id: 1 })
+    .lean();
+
+  return Boolean(result);
 }
 
 /**

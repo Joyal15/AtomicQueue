@@ -4,6 +4,7 @@ export {
   findNextMatchingWaitlistEntry,
   markWaitlistEntryNotified,
   notifyNextWaitlistEntry,
+  expireWaitlistEntry,
   type JoinWaitlistInput,
   type WaitlistEntryItem,
 } from './waitlist.service.js';

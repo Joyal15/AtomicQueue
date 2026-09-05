@@ -19,6 +19,8 @@ export interface WaitlistEntryDocument {
 
   status: WaitlistStatus;
 
+  notifiedAt?: Date;
+
   createdAt: Date;
 }
 
@@ -61,6 +63,11 @@ const waitlistEntrySchema = new Schema<WaitlistEntryDocument>(
       required: true,
       default: 'waiting',
       index: true,
+    },
+
+    notifiedAt: {
+      type: Date,
+      default: undefined,
     },
   },
   {
