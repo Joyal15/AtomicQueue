@@ -565,6 +565,31 @@ export async function getPublicAvailabilityBuckets(
   }));
 }
 
+export interface HeldSlot {
+  id: string;
+  holdVersion: string;
+}
+
+/**
+ * Lists a business's currently `held` slots with their fencing token.
+ * Purpose-built for `process-hold-expiry` (worker.ts): the minimal
+ * shape needed to check each one's Redis hold and, if it's gone,
+ * release it via `releaseHeldSlot`. Separate from `listSlots` because
+ * `holdVersion` is an internal fencing detail, not public API surface.
+ */
+export async function listHeldSlots(businessId: string): Promise<HeldSlot[]> {
+  const slots = await SlotModel.find({ businessId, status: 'held' })
+    .select({ _id: 1, holdVersion: 1 })
+    .lean();
+
+  return slots
+    .filter(
+      (slot): slot is typeof slot & { holdVersion: string } =>
+        typeof slot.holdVersion === 'string',
+    )
+    .map((slot) => ({ id: String(slot._id), holdVersion: slot.holdVersion }));
+}
+
 export type BlockSlotError = 'SLOT_NOT_FOUND' | 'SLOT_NOT_AVAILABLE';
 
 export type BlockSlotResult =

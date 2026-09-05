@@ -6,6 +6,7 @@
 export {
   generateWeeklySlots,
   listSlots,
+  listHeldSlots,
   getSlotById,
   getAvailableSlots,
   getPublicAvailabilityBuckets,
@@ -21,6 +22,7 @@ export {
   type GenerateSlotsOptions,
   type GenerateSlotsResult,
   type ListSlotsFilter,
+  type HeldSlot,
   type GetAvailableSlotsFilter,
   type PublicAvailabilityFilter,
   type PublicAvailabilityBucket,
