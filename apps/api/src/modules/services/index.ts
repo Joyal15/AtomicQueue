@@ -12,4 +12,5 @@ export {
   getServiceById,
   updateService,
   deactivateService,
+  reactivateService,
 } from './services.service.js';

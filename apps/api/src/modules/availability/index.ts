@@ -18,6 +18,8 @@ export {
   getAvailabilityById,
   updateAvailability,
   removeAvailability,
+  removeAvailabilityForProvider,
+  removeAvailabilityForService,
   type AvailabilityWriteError,
   type AvailabilityWriteResult,
 } from './availability.service.js';

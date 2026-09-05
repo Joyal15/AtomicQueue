@@ -8,6 +8,8 @@ export {
   getResourceById,
   updateResource,
   removeResource,
+  retireResource,
+  reactivateResource,
 } from './resources.service.js';
 
 /**

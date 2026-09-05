@@ -11,6 +11,10 @@ const envSchema = z.object({
   SESSION_COOKIE_SECRET: z.string().min(1, 'SESSION_COOKIE_SECRET is required'),
   SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(604800), // 7-day sliding TTL
   MAGIC_LINK_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
+  // Optional: unset in local dev falls back to a console-log stub
+  // sender (see notifications.service.ts) instead of failing startup.
+  RESEND_API_KEY: z.string().min(1).optional(),
+  RESEND_FROM_EMAIL: z.email().optional(),
 });
 
 const result = envSchema.safeParse(process.env);

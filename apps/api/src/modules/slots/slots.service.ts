@@ -590,6 +590,127 @@ export async function listHeldSlots(businessId: string): Promise<HeldSlot[]> {
     .map((slot) => ({ id: String(slot._id), holdVersion: slot.holdVersion }));
 }
 
+export interface BulkSlotTransitionResult {
+  /** Every slot this run actually changed, for the caller's post-commit realtime emit. */
+  affected: { slotId: string; status: SlotStatus }[];
+}
+
+/**
+ * Shared body for `cancelFutureSlotsForProvider`/`blockAndCancelFutureSlotsForService`
+ * (architecture doc §9b/§9c/§2c's removal/retirement/deactivation cascades).
+ *
+ * Scoped to future slots only (`datetime >= now`) — a cascade shouldn't
+ * touch historical records. `available` slots move to `availableTarget`
+ * (`'cancelled'` for a removed/retired provider, `'blocked'` for a
+ * deactivated service); `held` slots always become `'cancelled'` with
+ * `holdVersion` cleared — a hold on something actively being
+ * removed/retired/deactivated shouldn't be confirmable, invalidated now
+ * rather than left to expire naturally. `confirmed` slots are never
+ * matched here at all — deliberately left untouched by every caller.
+ *
+ * Callers must supply the transaction `session` they're already inside;
+ * this never opens its own transaction (see `cancelFutureSlotsForProvider`).
+ */
+async function bulkTransitionFutureSlots(
+  match: Record<string, unknown>,
+  availableTarget: 'cancelled' | 'blocked',
+  session: ClientSession,
+): Promise<BulkSlotTransitionResult> {
+  const now = new Date();
+
+  // Snapshot before mutating: this is the only way to know afterward
+  // which ids came from the 'available' branch (-> availableTarget)
+  // vs. the 'held' branch (-> always 'cancelled').
+  const candidates = await SlotModel.find({
+    ...match,
+    datetime: { $gte: now },
+    status: { $in: ['available', 'held'] },
+  })
+    .select({ _id: 1, status: 1 })
+    .session(session)
+    .lean();
+
+  if (candidates.length === 0) {
+    return { affected: [] };
+  }
+
+  await SlotModel.updateMany(
+    { ...match, datetime: { $gte: now }, status: 'available' },
+    { $set: { status: availableTarget } },
+    { session },
+  );
+
+  await SlotModel.updateMany(
+    { ...match, datetime: { $gte: now }, status: 'held' },
+    { $set: { status: 'cancelled' }, $unset: { holdVersion: 1 } },
+    { session },
+  );
+
+  return {
+    affected: candidates.map((slot) => ({
+      slotId: String(slot._id),
+      status: slot.status === 'held' ? 'cancelled' : availableTarget,
+    })),
+  };
+}
+
+/**
+ * Cancels a provider's future `available`/`held` slots — the slots
+ * half of staff removal (§9b) and resource retirement (§9c), which
+ * mirror each other field-for-field. `holdVersion` is cleared on the
+ * ones that were held. Future `confirmed` slots/bookings are
+ * deliberately left untouched — surfaced elsewhere as a manual
+ * follow-up list, never auto-cancelled here.
+ */
+export async function cancelFutureSlotsForProvider(
+  businessId: string,
+  providerId: string,
+  providerType: ProviderType,
+  session: ClientSession,
+): Promise<BulkSlotTransitionResult> {
+  return bulkTransitionFutureSlots(
+    { businessId, providerId, providerType },
+    'cancelled',
+    session,
+  );
+}
+
+/**
+ * Applies service deactivation's slot effects (§2c): future `available`
+ * slots for this service become `'blocked'` (not cancelled — a
+ * deliberately different terminal status than the provider-removal
+ * case above), future `held` slots become `'cancelled'` with
+ * `holdVersion` cleared, and `confirmed` slots are left untouched.
+ */
+export async function blockAndCancelFutureSlotsForService(
+  businessId: string,
+  serviceId: string,
+  session: ClientSession,
+): Promise<BulkSlotTransitionResult> {
+  return bulkTransitionFutureSlots(
+    { businessId, serviceId },
+    'blocked',
+    session,
+  );
+}
+
+/**
+ * Pushes one realtime `slot:updated` event per slot a bulk cascade
+ * changed. Post-commit only — never call this from inside the
+ * transaction that produced `affected`, same discipline every other
+ * emit in this module already follows (e.g. `confirmBooking`'s
+ * `emitBookingConfirmationUpdate` call happens after `withTransaction`
+ * resolves, not inside it).
+ */
+export function emitBulkSlotUpdates(
+  businessId: string,
+  affected: { slotId: string; status: SlotStatus }[],
+): void {
+  for (const { slotId, status } of affected) {
+    emitSlotUpdate(businessId, { slotId, status });
+  }
+}
+
 export type BlockSlotError = 'SLOT_NOT_FOUND' | 'SLOT_NOT_AVAILABLE';
 
 export type BlockSlotResult =

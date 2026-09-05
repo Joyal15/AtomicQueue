@@ -9,6 +9,8 @@ import {
   getResourceByIdController,
   updateResourceController,
   removeResourceController,
+  retireResourceController,
+  reactivateResourceController,
   createResourceSchema,
   updateResourceSchema,
 } from './resources.controller.js';
@@ -29,10 +31,16 @@ router.get('/', getResourcesController);
 // Get one resource by ID.
 router.get('/:resourceId', getResourceByIdController);
 
+// Retire a resource (transactional cascade — architecture doc §9c).
+router.patch('/:resourceId/retire', retireResourceController);
+
+// Reactivate a previously retired resource.
+router.patch('/:resourceId/reactivate', reactivateResourceController);
+
 // Update an existing resource.
 router.patch('/:resourceId', validate(updateResourceSchema), updateResourceController);
 
-// Remove a resource by marking it as removed.
+// Remove a resource by marking it as removed (same cascade as .../retire).
 router.delete('/:resourceId', removeResourceController);
 
 export default router;

@@ -1,3 +1,7 @@
+import { Resend } from 'resend';
+
+import { env } from '../../lib/env.js';
+import { logger } from '../../lib/logger.js';
 import { jobsQueue } from '../../lib/queue.js';
 
 export interface SendEmailInput {
@@ -14,9 +18,9 @@ export interface EmailSender {
 /**
  * Development email sender.
  *
- * This intentionally does not send real email yet.
- * Replace this implementation with the real provider adapter
- * once email infrastructure is available.
+ * Used whenever `RESEND_API_KEY`/`RESEND_FROM_EMAIL` aren't set (local
+ * dev without a real provider configured) — logs instead of sending,
+ * so the rest of the app behaves identically either way.
  */
 class DevelopmentEmailSender implements EmailSender {
   async sendEmail(input: SendEmailInput): Promise<void> {
@@ -28,7 +32,52 @@ class DevelopmentEmailSender implements EmailSender {
   }
 }
 
-const emailSender: EmailSender = new DevelopmentEmailSender();
+/**
+ * Real provider adapter. `sendEmail`/`enqueueTransactionalEmail`/
+ * `enqueueReminderEmail` below don't know or care which `EmailSender`
+ * is actually wired up — same separation the dev stub already had.
+ */
+class ResendEmailSender implements EmailSender {
+  private readonly client: Resend;
+
+  constructor(
+    apiKey: string,
+    private readonly from: string,
+  ) {
+    this.client = new Resend(apiKey);
+  }
+
+  async sendEmail(input: SendEmailInput): Promise<void> {
+    const { error } = await this.client.emails.send({
+      from: this.from,
+      to: input.to,
+      subject: input.subject,
+      text: input.text,
+      html: input.html,
+    });
+
+    if (error) {
+      // Thrown, not swallowed: this runs inside a BullMQ job handler
+      // (worker.ts), so throwing here surfaces as a failed job with
+      // BullMQ's own retry/logging — the same place every other job
+      // failure in this app is already visible.
+      throw new Error(`Resend send failed: ${error.message}`);
+    }
+  }
+}
+
+function createEmailSender(): EmailSender {
+  if (env.RESEND_API_KEY && env.RESEND_FROM_EMAIL) {
+    return new ResendEmailSender(env.RESEND_API_KEY, env.RESEND_FROM_EMAIL);
+  }
+
+  logger.warn(
+    'RESEND_API_KEY/RESEND_FROM_EMAIL not set — emails will only be logged, not sent',
+  );
+  return new DevelopmentEmailSender();
+}
+
+const emailSender: EmailSender = createEmailSender();
 
 export async function sendEmail(input: SendEmailInput): Promise<void> {
   await emailSender.sendEmail(input);

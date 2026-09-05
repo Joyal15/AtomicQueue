@@ -9,6 +9,7 @@ import {
   getServiceById,
   updateService,
   deactivateService,
+  reactivateService,
 } from './services.service.js';
 
 /** Body schema for POST /, enforced by `validate()` at the router level. */
@@ -25,6 +26,11 @@ export const createServiceSchema = z.object({
  * Body schema for PATCH /:serviceId. Every field is optional (partial
  * update — Mongoose already drops undefined keys from the write, this
  * just makes that contract explicit and rejects a genuinely empty body).
+ *
+ * `isActive` is deliberately not accepted here — deactivating/
+ * reactivating a service must go through `PATCH .../deactivate` or
+ * `.../reactivate` so the deactivation cascade can never be bypassed
+ * by a plain field patch.
  */
 export const updateServiceSchema = z
   .object({
@@ -35,7 +41,6 @@ export const updateServiceSchema = z
       .min(1, 'Duration must be at least 1 minute.')
       .optional(),
     price: z.number().min(0, 'Price cannot be negative.').optional(),
-    isActive: z.boolean().optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {
     message: 'Provide at least one field to update.',
@@ -114,7 +119,6 @@ export const updateServiceController = asyncHandler<{ serviceId: string }>(
       name: req.body.name,
       durationMinutes: req.body.durationMinutes,
       price: req.body.price,
-      isActive: req.body.isActive,
     });
 
     if (!service) {
@@ -133,8 +137,10 @@ export const updateServiceController = asyncHandler<{ serviceId: string }>(
 );
 
 /**
- * Marks a service inactive rather than deleting it, so existing
- * bookings and slots can still reference it.
+ * Deactivates a service: transactional cascade (architecture doc §2c) —
+ * marks it inactive, blocks its future available slots, cancels its
+ * future held slots, and deletes its availability templates. Confirmed
+ * future bookings are deliberately left untouched.
  */
 export const deactivateServiceController = asyncHandler<{ serviceId: string }>(
   async (req, res) => {
@@ -149,7 +155,36 @@ export const deactivateServiceController = asyncHandler<{ serviceId: string }>(
       return res.status(404).json({
         error: {
           code: 'NOT_FOUND',
-          message: 'Service not found',
+          message: 'Service not found or already inactive',
+        },
+      });
+    }
+
+    return res.status(200).json({
+      data: service,
+    });
+  },
+);
+
+/**
+ * Reactivates a previously deactivated service. Explicit,
+ * non-cascading — resurrects nothing (no un-blocking specific slots,
+ * no restored availability templates).
+ */
+export const reactivateServiceController = asyncHandler<{ serviceId: string }>(
+  async (req, res) => {
+    if (!requireUser(req, res)) return;
+
+    const service = await reactivateService(
+      req.user.businessId,
+      req.params.serviceId,
+    );
+
+    if (!service) {
+      return res.status(404).json({
+        error: {
+          code: 'NOT_FOUND',
+          message: 'Service not found or already active',
         },
       });
     }

@@ -9,6 +9,8 @@ import {
   getResourceById,
   updateResource,
   removeResource,
+  retireResource,
+  reactivateResource,
 } from './resources.service.js';
 
 /** Body schema for POST /, enforced by `validate()` at the router level. */
@@ -24,6 +26,10 @@ export const createResourceSchema = z.object({
 /**
  * Body schema for PATCH /:resourceId. Every field is optional (partial
  * update), but at least one must be present.
+ *
+ * `status` is deliberately not accepted here — retiring/reactivating a
+ * resource must go through `PATCH .../retire` or `.../reactivate` so
+ * the retirement cascade can never be bypassed by a plain field patch.
  */
 export const updateResourceSchema = z
   .object({
@@ -34,7 +40,6 @@ export const updateResourceSchema = z
       .int('Capacity must be a whole number.')
       .min(1, 'Capacity must be at least 1.')
       .optional(),
-    status: z.enum(['active', 'removed']).optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {
     message: 'Provide at least one field to update.',
@@ -113,7 +118,6 @@ export const updateResourceController = asyncHandler<{ resourceId: string }>(
       name: req.body.name,
       type: req.body.type,
       capacity: req.body.capacity,
-      status: req.body.status,
     });
 
     if (!resource) {
@@ -133,7 +137,8 @@ export const updateResourceController = asyncHandler<{ resourceId: string }>(
 
 /**
  * Marks a resource as removed rather than deleting it, so existing
- * bookings can still reference it.
+ * bookings can still reference it. Backed by the same cascading
+ * `retireResource` transaction as `PATCH .../retire` below.
  */
 export const removeResourceController = asyncHandler<{ resourceId: string }>(
   async (req, res) => {
@@ -149,6 +154,64 @@ export const removeResourceController = asyncHandler<{ resourceId: string }>(
         error: {
           code: 'NOT_FOUND',
           message: 'Resource not found',
+        },
+      });
+    }
+
+    return res.status(200).json({
+      data: resource,
+    });
+  },
+);
+
+/**
+ * Retires a resource: transactional cascade (architecture doc §9c) —
+ * marks it removed, deletes its availability templates, and cancels
+ * its future available/held slots. Confirmed future bookings are
+ * deliberately left untouched.
+ */
+export const retireResourceController = asyncHandler<{ resourceId: string }>(
+  async (req, res) => {
+    if (!requireUser(req, res)) return;
+
+    const resource = await retireResource(
+      req.user.businessId,
+      req.params.resourceId,
+    );
+
+    if (!resource) {
+      return res.status(404).json({
+        error: {
+          code: 'NOT_FOUND',
+          message: 'Resource not found or already removed',
+        },
+      });
+    }
+
+    return res.status(200).json({
+      data: resource,
+    });
+  },
+);
+
+/**
+ * Reactivates a previously retired resource. Explicit, non-cascading —
+ * does not restore the availability templates deleted at retirement.
+ */
+export const reactivateResourceController = asyncHandler<{ resourceId: string }>(
+  async (req, res) => {
+    if (!requireUser(req, res)) return;
+
+    const resource = await reactivateResource(
+      req.user.businessId,
+      req.params.resourceId,
+    );
+
+    if (!resource) {
+      return res.status(404).json({
+        error: {
+          code: 'NOT_FOUND',
+          message: 'Resource not found or not currently removed',
         },
       });
     }

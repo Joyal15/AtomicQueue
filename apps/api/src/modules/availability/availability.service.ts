@@ -14,7 +14,7 @@
  *   - Map Mongo documents to the shared `ProviderAvailability` API type.
  */
 
-import { Types } from 'mongoose';
+import { Types, type ClientSession } from 'mongoose';
 
 import type {
   ProviderAvailability,
@@ -315,4 +315,48 @@ export async function removeAvailability(
   }
 
   return toProviderAvailability(availability);
+}
+
+/**
+ * Bulk-removes every availability template for one provider — the
+ * availability half of staff removal (§9b) and resource retirement
+ * (§9c). `ProviderAvailability` has no active/inactive flag, so
+ * "deactivated" here means hard-deleted, same as the single-row
+ * `removeAvailability` above — just scoped to every row for this
+ * provider instead of one row by id.
+ *
+ * Always called from inside the caller's own transaction (staff
+ * removal / resource retirement), never opens one itself.
+ */
+export async function removeAvailabilityForProvider(
+  businessId: string,
+  providerId: string,
+  providerType: ProviderType,
+  session: ClientSession,
+): Promise<number> {
+  const result = await ProviderAvailabilityModel.deleteMany(
+    { businessId, providerId, providerType },
+    { session },
+  );
+
+  return result.deletedCount ?? 0;
+}
+
+/**
+ * Bulk-removes every availability template referencing one service —
+ * the availability half of service deactivation's four-effect
+ * transaction (§2c). Same hard-delete semantics as
+ * `removeAvailabilityForProvider`, scoped by `serviceId` instead.
+ */
+export async function removeAvailabilityForService(
+  businessId: string,
+  serviceId: string,
+  session: ClientSession,
+): Promise<number> {
+  const result = await ProviderAvailabilityModel.deleteMany(
+    { businessId, serviceId },
+    { session },
+  );
+
+  return result.deletedCount ?? 0;
 }
