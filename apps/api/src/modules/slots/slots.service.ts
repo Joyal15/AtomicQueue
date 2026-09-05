@@ -913,6 +913,38 @@ export async function releaseHeldSlot(
 
   return true;
 }
+
+export async function cancelConfirmedSlot(
+  slotId: string,
+  businessId: string,
+  session: ClientSession,
+): Promise<boolean> {
+  if (!Types.ObjectId.isValid(slotId)) {
+    return false;
+  }
+
+  const slot = await SlotModel.findOneAndUpdate(
+    {
+      _id: slotId,
+      businessId,
+      status: 'confirmed',
+    },
+    {
+      $set: {
+        status: 'available',
+      },
+    },
+    {
+      session,
+      new: false,
+    },
+  )
+    .select({ _id: 1 })
+    .lean();
+
+  return Boolean(slot);
+}
+
 export async function confirmHeldSlot(
   slotId: string,
   businessId: string,

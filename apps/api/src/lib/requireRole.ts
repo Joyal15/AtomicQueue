@@ -25,3 +25,35 @@ export function requireRole(
 
   return true;
 }
+
+export function requireAnyRole(
+  ...roles: AuthenticatedUser['role'][]
+) {
+  return (
+    req: Request,
+    res: Response,
+    next: () => void,
+  ): void => {
+    if (!req.user) {
+      res.status(401).json({
+        error: {
+          code: 'UNAUTHENTICATED',
+          message: 'Authentication required.',
+        },
+      });
+      return;
+    }
+
+    if (!roles.includes(req.user.role)) {
+      res.status(403).json({
+        error: {
+          code: 'FORBIDDEN',
+          message: 'You do not have permission to perform this action.',
+        },
+      });
+      return;
+    }
+
+    next();
+  };
+}

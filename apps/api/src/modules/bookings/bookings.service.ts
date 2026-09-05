@@ -8,6 +8,7 @@ import {
   confirmAvailableSlot,
   confirmHeldSlot,
   releaseHeldSlot,
+  cancelConfirmedSlot,
   emitBookingConfirmationUpdate,
   getSlotById,
 } from '../slots/index.js';
@@ -480,6 +481,142 @@ export async function createWalkInBooking(
   return {
     bookingId: String(booking._id),
   };
+}
+
+export interface CancelBookingResult {
+  bookingId: string;
+  slotId: string;
+}
+
+export async function cancelBooking(
+  businessId: string,
+  bookingId: string,
+  dependencies: BookingServiceDependencies = {},
+): Promise<CancelBookingResult> {
+  if (!mongoose.Types.ObjectId.isValid(bookingId)) {
+    throw new AppError(
+      404,
+      'BOOKING_NOT_FOUND',
+      'Booking not found.',
+    );
+  }
+
+  const session =
+    dependencies.mongoSession ??
+    await mongoose.startSession();
+
+  const ownsSession = !dependencies.mongoSession;
+
+  try {
+    let cancelledSlotId = '';
+
+    await session.withTransaction(async () => {
+    const existingBooking = await BookingModel.findOne({
+      _id: bookingId,
+      businessId,
+    })
+      .select({ _id: 1, slotId: 1, status: 1 })
+      .session(session)
+      .lean();
+
+    if (!existingBooking) {
+      throw new AppError(
+        404,
+        'BOOKING_NOT_FOUND',
+        'Booking not found.',
+      );
+    }
+
+    if (existingBooking.status !== 'confirmed') {
+      throw new AppError(
+        409,
+        'BOOKING_NOT_CANCELLABLE',
+        'The booking is no longer cancellable.',
+      );
+    }
+
+    const booking = await BookingModel.findOneAndUpdate(
+      {
+        _id: bookingId,
+        businessId,
+        status: 'confirmed',
+      },
+      {
+        $set: {
+          status: 'cancelled',
+          cancelledAt: new Date(),
+        },
+      },
+      {
+        session,
+        new: false,
+      },
+    )
+      .select({ _id: 1, slotId: 1 })
+      .lean();
+
+    if (!booking) {
+      throw new AppError(
+        409,
+        'BOOKING_NOT_CANCELLABLE',
+        'The booking is no longer cancellable.',
+      );
+    }
+
+    const released = await cancelConfirmedSlot(
+      String(booking.slotId),
+      businessId,
+      session,
+    );
+
+    if (!released) {
+      throw new AppError(
+        409,
+        'BOOKING_SLOT_CONFLICT',
+        'The booking slot could not be released.',
+      );
+    }
+
+    cancelledSlotId = String(booking.slotId);
+    });
+
+    /*
+     * Mongo committed successfully.
+     * Everything below is an external side effect.
+     */
+    const slot = await getSlotById(
+      businessId,
+      cancelledSlotId,
+    );
+
+    if (slot) {
+      await emitBookingConfirmationUpdate(
+        businessId,
+        slot.providerId,
+        slot.providerType,
+        slot.serviceId,
+        slot.datetime,
+      );
+    }
+
+    /*
+     * Waitlist notification is deliberately after commit.
+     * The waitlist module owns matching/notification behavior.
+     */
+    void notifyNextWaitlistEntry(
+      businessId,
+      cancelledSlotId,
+    );
+
+    return {
+      bookingId,
+      slotId: cancelledSlotId,
+    };
+  } finally {
+    if (ownsSession) {
+      await session.endSession();
+    }
+  }
 }
 
 export async function listBookings(

@@ -2,6 +2,7 @@ import { Router } from 'express';
 
 import { authenticate } from '../auth/authenticate.js';
 import { validate } from '../../middleware/validate.js';
+import { requireAnyRole } from '../../lib/requireRole.js';
 
 import {
   createBooking,
@@ -11,12 +12,17 @@ import {
   exchangeMagicLinkController,
   resendMagicLinkController,
   getCustomerBookingController,
+  cancelCustomerBookingController,
+  cancelStaffBookingController,
   createBookingSchema,
   exchangeMagicLinkSchema,
   resendMagicLinkSchema,
 } from './bookings.controller.js';
 
-import { requireBookingAccess } from './booking-access.js';
+import {
+  requireBookingAccess,
+  requireBookingManagement,
+} from './booking-access.js';
 
 const bookingsRouter = Router();
 
@@ -38,6 +44,20 @@ bookingsRouter.get(
   '/manage',
   requireBookingAccess,
   getCustomerBookingController,
+);
+
+bookingsRouter.post(
+  '/manage/cancel',
+  requireBookingAccess,
+  requireBookingManagement,
+  cancelCustomerBookingController,
+);
+
+bookingsRouter.post(
+  '/:bookingId/cancel',
+  authenticate,
+  requireAnyRole('owner', 'staff'),
+  cancelStaffBookingController,
 );
 
 bookingsRouter.post(

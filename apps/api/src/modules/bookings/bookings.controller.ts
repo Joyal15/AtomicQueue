@@ -3,7 +3,13 @@ import { z } from 'zod';
 
 import { asyncHandler } from '../../lib/asyncHandler.js';
 import { AppError } from '../../lib/Apperror.js';
-import { confirmBooking , createWalkInBooking, listBookings, getBookingForCustomer} from './bookings.service.js';
+import { 
+  confirmBooking,
+  createWalkInBooking,
+  listBookings,
+  getBookingForCustomer,
+  cancelBooking,
+} from './bookings.service.js';
 import {
   exchangeMagicLink,
   setBookingAccessCookie,
@@ -223,5 +229,53 @@ export const getCustomerBookingController = asyncHandler(async (req, res) => {
       slot:booking.slot,
       accessTier: req.bookingAccess.tier,
     },
+  });
+});
+
+export const cancelCustomerBookingController = asyncHandler(async (req, res) => {
+  if (!req.bookingAccess) {
+    throw new AppError(
+      401,
+      'BOOKING_ACCESS_REQUIRED',
+      'Booking access is required.',
+    );
+  }
+
+  const result = await cancelBooking(
+    req.bookingAccess.businessId,
+    req.bookingAccess.bookingId,
+  );
+
+  res.json({
+    data: result,
+  });
+});
+
+export const cancelStaffBookingController = asyncHandler(async (req, res) => {
+  if (!req.user) {
+    throw new AppError(
+      401,
+      'UNAUTHENTICATED',
+      'Authentication required.',
+    );
+  }
+
+  const bookingId = req.params.bookingId;
+
+  if (!bookingId || Array.isArray(bookingId)) {
+    throw new AppError(
+      400,
+      'BOOKING_ID_REQUIRED',
+      'Booking ID is required.',
+    );
+  }
+
+  const result = await cancelBooking(
+    req.user.businessId,
+    bookingId,
+  );
+
+  res.json({
+    data: result,
   });
 });

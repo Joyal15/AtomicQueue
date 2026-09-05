@@ -11,6 +11,7 @@ export type BookingAccessTier = 'manage' | 'view-only';
 
 export interface BookingAccessContext {
   bookingId: string;
+  businessId: string;
   tier: BookingAccessTier;
 }
 
@@ -81,6 +82,7 @@ export const requireBookingAccess = asyncHandler(async (req, _res, next) => {
 
   req.bookingAccess = {
     bookingId: String(booking._id),
+    businessId: String(booking.businessId),
     tier:
       now < cutoffAt
         ? 'manage'
