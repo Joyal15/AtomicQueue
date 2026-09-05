@@ -14,9 +14,12 @@ import {
   getCustomerBookingController,
   cancelCustomerBookingController,
   cancelStaffBookingController,
+  rescheduleCustomerBookingController,
+  rescheduleStaffBookingController,
   createBookingSchema,
   exchangeMagicLinkSchema,
   resendMagicLinkSchema,
+  rescheduleBookingSchema,
 } from './bookings.controller.js';
 
 import {
@@ -61,17 +64,33 @@ bookingsRouter.post(
 );
 
 bookingsRouter.post(
-  '/',
-  authenticate,
-  validate(createBookingSchema),
-  createBooking,
-);
-
-bookingsRouter.post(
   '/walk-in',
   authenticate,
   validate(createBookingSchema),
   createWalkInBookingController,
+);
+
+bookingsRouter.post(
+  '/manage/reschedule',
+  requireBookingAccess,
+  requireBookingManagement,
+  validate(rescheduleBookingSchema),
+  rescheduleCustomerBookingController,
+);
+
+bookingsRouter.post(
+  '/:bookingId/reschedule',
+  authenticate,
+  requireAnyRole('owner', 'staff'),
+  validate(rescheduleBookingSchema),
+  rescheduleStaffBookingController,
+);
+
+bookingsRouter.post(
+  '/',
+  authenticate,
+  validate(createBookingSchema),
+  createBooking,
 );
 
 bookingsRouter.get(

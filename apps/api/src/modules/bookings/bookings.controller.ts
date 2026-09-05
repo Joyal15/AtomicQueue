@@ -9,7 +9,9 @@ import {
   listBookings,
   getBookingForCustomer,
   cancelBooking,
+  rescheduleBooking,
 } from './bookings.service.js';
+
 import {
   exchangeMagicLink,
   setBookingAccessCookie,
@@ -43,6 +45,14 @@ export const exchangeMagicLinkSchema = z.object({
 /** Body schema for POST /magic-link/resend. */
 export const resendMagicLinkSchema = z.object({
   contact: z.string().trim().min(1, 'Contact is required.'),
+});
+
+// Reschudele booking schema
+export const rescheduleBookingSchema = z.object({
+  providerId: z.string().trim().min(1, 'Provider is required.'),
+  providerType: z.enum(['staff', 'resource']),
+  serviceId: z.string().trim().min(1, 'Service is required.'),
+  datetime: z.string().trim().min(1, 'Date/time is required.'),
 });
 
 export const createBooking = asyncHandler(async (req, res) => {
@@ -279,3 +289,77 @@ export const cancelStaffBookingController = asyncHandler(async (req, res) => {
     data: result,
   });
 });
+
+export const rescheduleCustomerBookingController = asyncHandler(
+  async (req, res) => {
+    if (!req.bookingAccess) {
+      throw new AppError(
+        401,
+        'BOOKING_ACCESS_REQUIRED',
+        'Booking access is required.',
+      );
+    }
+
+    const {
+      providerId,
+      providerType,
+      serviceId,
+      datetime,
+    } = req.body;
+
+    const result = await rescheduleBooking({
+      businessId: req.bookingAccess.businessId,
+      bookingId: req.bookingAccess.bookingId,
+      providerId,
+      providerType,
+      serviceId,
+      datetime,
+    });
+
+    res.json({
+      data: result,
+    });
+  },
+);
+
+export const rescheduleStaffBookingController = asyncHandler(
+  async (req, res) => {
+    if (!req.user) {
+      throw new AppError(
+        401,
+        'UNAUTHENTICATED',
+        'Authentication required.',
+      );
+    }
+
+    const bookingId = req.params.bookingId;
+
+    if (!bookingId || Array.isArray(bookingId)) {
+      throw new AppError(
+        400,
+        'BOOKING_ID_REQUIRED',
+        'Booking ID is required.',
+      );
+    }
+
+    const {
+      providerId,
+      providerType,
+      serviceId,
+      datetime,
+    } = req.body;
+
+    const result = await rescheduleBooking({
+      businessId: req.user.businessId,
+      bookingId,
+      providerId,
+      providerType,
+      serviceId,
+      datetime,
+    });
+
+    res.json({
+      data: result,
+    });
+  },
+);

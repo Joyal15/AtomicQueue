@@ -15,6 +15,7 @@ export {
   claimSlot,
   releaseHeldSlot,
   cancelConfirmedSlot,
+  rescheduleConfirmedSlots,
   confirmHeldSlot,
   emitBookingConfirmationUpdate,
   type GenerateSlotsOptions,

@@ -945,6 +945,126 @@ export async function cancelConfirmedSlot(
   return Boolean(slot);
 }
 
+export interface RescheduleConfirmedSlotsResult {
+  newSlotId: string;
+  newDatetime: Date;
+}
+
+export async function rescheduleConfirmedSlots(
+  businessId: string,
+  oldSlotId: string,
+  providerId: string,
+  providerType: ProviderType,
+  serviceId: string,
+  datetime: Date | string,
+  session: ClientSession,
+): Promise<RescheduleConfirmedSlotsResult | null> {
+  if (!Types.ObjectId.isValid(oldSlotId)) {
+    return null;
+  }
+
+  const parsedDatetime = new Date(datetime);
+
+  if (Number.isNaN(parsedDatetime.getTime())) {
+    return null;
+  }
+
+  const oldSlot = await SlotModel.findOne({
+    _id: oldSlotId,
+    businessId,
+    status: 'confirmed',
+  })
+    .session(session)
+    .select({
+      _id: 1,
+      providerId: 1,
+      providerType: 1,
+      serviceId: 1,
+      datetime: 1,
+    })
+    .lean();
+
+  if (!oldSlot) {
+    return null;
+  }
+
+  /*
+   * Do not allow a no-op reschedule. More importantly, don't release
+   * the currently confirmed slot and then accidentally reclaim it.
+   */
+  if (
+    String(oldSlot.providerId) === providerId &&
+    oldSlot.providerType === providerType &&
+    String(oldSlot.serviceId) === serviceId &&
+    oldSlot.datetime.getTime() === parsedDatetime.getTime()
+  ) {
+    return null;
+  }
+
+  const newSlot = await SlotModel.findOneAndUpdate(
+    {
+      businessId,
+      providerId,
+      providerType,
+      serviceId,
+      datetime: parsedDatetime,
+      status: 'available',
+    },
+    {
+      $set: {
+        status: 'confirmed',
+      },
+      $unset: {
+        holdVersion: 1,
+      },
+    },
+    {
+      session,
+      new: true,
+    },
+  )
+    .select({
+      _id: 1,
+      providerId: 1,
+      providerType: 1,
+      serviceId: 1,
+      datetime: 1,
+    })
+    .lean();
+
+  if (!newSlot) {
+    return null;
+  }
+
+  const released = await SlotModel.findOneAndUpdate(
+    {
+      _id: oldSlot._id,
+      businessId,
+      status: 'confirmed',
+    },
+    {
+      $set: {
+        status: 'available',
+      },
+    },
+    {
+      session,
+      new: false,
+    },
+  )
+    .select({ _id: 1 })
+    .lean();
+
+  if (!released) {
+    throw new Error('RESCHEDULE_OLD_SLOT_CONFLICT');
+  }
+
+  return {
+    newSlotId: String(newSlot._id),
+    newDatetime: newSlot.datetime,
+  };
+}
+
 export async function confirmHeldSlot(
   slotId: string,
   businessId: string,

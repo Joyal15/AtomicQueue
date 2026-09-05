@@ -9,6 +9,7 @@ import {
   confirmHeldSlot,
   releaseHeldSlot,
   cancelConfirmedSlot,
+  rescheduleConfirmedSlots,
   emitBookingConfirmationUpdate,
   getSlotById,
 } from '../slots/index.js';
@@ -616,6 +617,169 @@ export async function cancelBooking(
     if (ownsSession) {
       await session.endSession();
     }
+  }
+}
+
+export interface RescheduleBookingInput {
+  businessId: string;
+  bookingId: string;
+  providerId: string;
+  providerType: ProviderType;
+  serviceId: string;
+  datetime: Date | string;
+}
+
+export interface RescheduleBookingResult {
+  bookingId: string;
+  oldSlotId: string;
+  newSlotId: string;
+  datetime: string;
+}
+
+export async function rescheduleBooking(
+  input: RescheduleBookingInput,
+  dependencies: BookingServiceDependencies = {},
+): Promise<RescheduleBookingResult> {
+  if (!mongoose.Types.ObjectId.isValid(input.bookingId)) {
+    throw new AppError(
+      404,
+      'BOOKING_NOT_FOUND',
+      'Booking not found.',
+    );
+  }
+
+  const session =
+    dependencies.mongoSession ??
+    await mongoose.startSession();
+
+  const ownsSession = !dependencies.mongoSession;
+
+  try {
+    const result = await session.withTransaction(
+  async (): Promise<RescheduleBookingResult> => {
+    const booking = await BookingModel.findOne({
+      _id: input.bookingId,
+      businessId: input.businessId,
+    })
+      .select({ _id: 1, slotId: 1, status: 1 })
+      .session(session)
+      .lean();
+
+    if (!booking) {
+      throw new AppError(
+        404,
+        'BOOKING_NOT_FOUND',
+        'Booking not found.',
+      );
+    }
+
+    if (booking.status !== 'confirmed') {
+      throw new AppError(
+        409,
+        'BOOKING_NOT_RESCHEDULABLE',
+        'The booking is no longer reschedulable.',
+      );
+    }
+
+    const oldSlotId = String(booking.slotId);
+
+    const slotResult = await rescheduleConfirmedSlots(
+      input.businessId,
+      oldSlotId,
+      input.providerId,
+      input.providerType,
+      input.serviceId,
+      input.datetime,
+      session,
+    );
+
+    if (!slotResult) {
+      throw new AppError(
+        409,
+        'SLOT_NOT_AVAILABLE',
+        'The selected slot is no longer available.',
+      );
+    }
+
+    const updatedBooking = await BookingModel.findOneAndUpdate(
+      {
+        _id: input.bookingId,
+        businessId: input.businessId,
+        status: 'confirmed',
+        slotId: booking.slotId,
+      },
+      {
+        $set: {
+          slotId: slotResult.newSlotId,
+        },
+      },
+      {
+        session,
+        new: true,
+      },
+    )
+      .select({ _id: 1 })
+      .lean();
+
+    if (!updatedBooking) {
+      throw new AppError(
+        409,
+        'BOOKING_NOT_RESCHEDULABLE',
+        'The booking could not be rescheduled.',
+      );
+    }
+
+    return {
+      bookingId: input.bookingId,
+      oldSlotId,
+      newSlotId: slotResult.newSlotId,
+      datetime: slotResult.newDatetime.toISOString(),
+    };
+  },
+);
+
+    /*
+     * Mongo committed. Realtime updates happen only now.
+     *
+     * We emit the old and new buckets separately because the customer
+     * availability view needs both sides of the move reflected.
+     */
+    const oldSlot = await getSlotById(
+      input.businessId,
+      result.oldSlotId,
+    );
+
+    if (oldSlot) {
+      await emitBookingConfirmationUpdate(
+        input.businessId,
+        oldSlot.providerId,
+        oldSlot.providerType,
+        oldSlot.serviceId,
+        oldSlot.datetime,
+      );
+    }
+
+    await emitBookingConfirmationUpdate(
+      input.businessId,
+      input.providerId,
+      input.providerType,
+      input.serviceId,
+      input.datetime,
+    );
+
+    void notifyNextWaitlistEntry(
+      input.businessId,
+      result.oldSlotId,
+    );
+
+    return result;
+
+  } finally {
+
+    if (ownsSession) {
+      await session.endSession();
+    }
+
   }
 }
 
