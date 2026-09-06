@@ -141,13 +141,13 @@ This is the leftover setup work that the independence principle above depends on
 - [ ] Publish `Slot` type
 
 **Peter 2 (AI) — Frontend**
-- [ ] Public booking page per business (`/b/:slug`) — service/staff/time selection, slot grid
-- [ ] Booking confirmation flow, hold countdown UI (reflects Redis TTL)
-- [ ] Customer magic-link manage page (architecture doc §9a): on load, `POST`s the raw token from the URL (body, never left as a query string) to Peter 1's exchange endpoint, then immediately scrubs it from the visible URL via `history.replaceState`; shows the booking under the three access tiers (view-only past cutoff, fully locked past expiry) — this is the page Phase 4's reschedule/cancel UI mounts inside, not a separate later concern
-- [ ] Socket.IO client integration — live slot updates on booking page + staff dashboard, no refresh
-- [ ] Staff dashboard: live bookings list, today's schedule
-- [ ] Staff-facing "book for a walk-in customer" form (§3) — same slot picker as the public page, confirms directly with no hold step
-- [ ] Waitlist opt-in UI when a slot is taken
+- [x] Public booking page per business (`/b/:slug`) — service/staff/time selection, slot grid — *`PublicBookingPage.tsx`: business hero, service + provider `Select`s, live availability as day-grouped time chips with per-bucket capacity badges, waitlist `Dialog`. No anonymous claim button — there's still no unauthenticated booking endpoint, so the honest "self-checkout isn't live, join the waitlist" path stays.*
+- [~] Booking confirmation flow, hold countdown UI (reflects Redis TTL) — *staff/owner side done via `WalkInBookingPage.tsx` (server runs claim→confirm in one call, no UI hold step). The customer-facing hold countdown is still blocked on there being no anonymous `POST /bookings` to place a hold from — nothing to count down on the public side yet.*
+- [x] Customer magic-link manage page (architecture doc §9a) — *`MagicLinkManagePage.tsx`: token exchanged from the URL, URL scrubbed via `setSearchParams({}, {replace})`, booking loaded via the `booking_access` cookie; access tiers respected (manage vs. view-only); **cancel + reschedule now wired** (`POST /bookings/manage/cancel` and `/manage/reschedule`, reschedule uses the public availability endpoint via a new `businessSlug` field on the manage response).*
+- [x] Socket.IO client integration — *`lib/realtime.ts`'s `useSlotUpdates` consumed by `SchedulePage.tsx` (patches rows in place) and `StaffBookingsPage.tsx` (refetches) — no polling.*
+- [x] Staff dashboard: live bookings list, today's schedule — *`StaffBookingsPage.tsx` (day-grouped upcoming/past, live) + `SchedulePage.tsx` (per-provider slot list, live, day-grouped).*
+- [x] Staff-facing "book for a walk-in customer" form (§3) — *`WalkInBookingPage.tsx`, confirms directly against `POST /api/bookings`.*
+- [x] Waitlist opt-in UI when a slot is taken — *waitlist `Dialog` on `PublicBookingPage.tsx`; staff read view on `StaffWaitlistPage.tsx`.*
 
 **Note on the interface between tracks:** `bookings` (Peter 1) needs slots to exist (Peter 3's `availability`) and needs to push updates (Peter 3's `realtime`). Agree on both function signatures *before* writing the implementations — a 10-minute conversation up front here saves a rewrite later. This is the one phase where the two tracks are genuinely coupled, so touch base at the start and again once each side has a working stub.
 
@@ -174,13 +174,15 @@ This is the leftover setup work that the independence principle above depends on
 - [ ] Service deactivation + reactivation (`services` module, architecture doc §2c): `isActive: true → false` is one transaction with four effects — `available` Slots for this service → `blocked`, `held` Slots → `cancelled` (`holdVersion` cleared), `confirmed` Slots left untouched, and `ProviderAvailability` rows for this service deactivated so nothing generates against it going forward. Same shape as staff removal/resource retirement above, not a fourth separate design. Reactivation resurrects nothing — no un-blocking specific slots, no restored `ProviderAvailability`; the owner reconfigures from scratch. `generate-weekly-slots` and the claim path both defensively re-check `Services.isActive`, not just at deactivation time.
 
 **Peter 2 (AI) — Frontend**
-- [ ] Reschedule flow UI (pick new slot, confirm swap)
-- [ ] Cancellation flow UI (customer + staff-initiated)
-- [ ] Mark completed / mark no-show controls on the staff booking-detail view (§3)
-- [ ] Manual slot-blocking control on the staff schedule/availability view, and a Service active/inactive toggle on the services list (§3/§2c) — both staff/owner-only
-- [ ] Notification status indicators on staff dashboard (e.g. "reminder sent")
-- [ ] No-show risk note on staff-facing booking detail view
-- [ ] Waitlist "slot opened up" claim flow (time-boxed)
+- [x] Reschedule flow UI (pick new slot, confirm swap) — *staff: `RescheduleDialog` in `StaffBookingsPage.tsx` (available slots for the same provider+service, `POST /bookings/:id/reschedule`). Customer: `RescheduleDialog` in `MagicLinkManagePage.tsx` (public availability buckets, `POST /bookings/manage/reschedule`).*
+- [x] Cancellation flow UI (customer + staff-initiated) — *`CancelDialog` on both pages — `POST /bookings/:id/cancel` (staff) and `POST /bookings/manage/cancel` (customer), each behind a confirm dialog.*
+- [x] Mark completed / mark no-show controls on the staff booking-detail view (§3) — *expandable booking row in `StaffBookingsPage.tsx`, `POST /bookings/:id/outcome`, confirmed-only.*
+- [x] Manual slot-blocking control + Service active/inactive toggle (§3/§2c) — *slot Block button on `SchedulePage.tsx`; `ServicesPage.tsx` now toggles both ways (`PATCH .../deactivate` and `.../reactivate`).*
+- [ ] Notification status indicators on staff dashboard (e.g. "reminder sent") — *not built: no endpoint exposes per-booking delivery state yet.*
+- [x] No-show risk note on staff-facing booking detail view — *`StaffBookingsPage.tsx` shows a "Risk note" badge on the row and the full `noShowRiskNote` text in the expanded detail (staff tier only — it's stripped from the customer projection).*
+- [ ] Waitlist "slot opened up" claim flow (time-boxed) — *not built: there's no customer-facing waitlist-claim endpoint (`waitlist.routes.ts` is join + staff-list only).*
+
+**Design pass (pulled forward from Phase 5):** new token palette (indigo primary, success/warning roles, alpha-aware colours so opacity modifiers actually apply), Inter webfont, shadow scale. New primitives: `Select`, `Dialog` (dependency-free portal), `Skeleton`/`SkeletonList`, `Spinner`, `EmptyState`, `PageHeader`, `brand` wordmark, `lib/format.ts` (shared date/price formatters + status→badge maps). New marketing `LandingPage` at `/`; auth pages rebuilt on a two-column `AuthShell`; `DashboardLayout` is now a responsive sidebar + mobile slide-over. Every dashboard/public page moved onto the shared primitives with real loading/empty/error states. Full `turbo run build` clean; landing/login/signup verified in a browser at desktop + mobile widths.
 
 **Exit criteria:** full state machine reachable through the UI, reminder emails fire on schedule, no-show risk shows for staff.
 

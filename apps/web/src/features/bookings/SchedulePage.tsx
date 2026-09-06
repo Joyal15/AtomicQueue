@@ -1,25 +1,29 @@
 import { useEffect, useMemo, useState } from 'react'
+import { CalendarRange } from 'lucide-react'
 
 import type { Slot } from '@queueless/shared-types'
 
 import { apiFetch, ApiRequestError } from '@/lib/api'
 import { useAuth } from '@/lib/use-auth'
 import { useSlotUpdates } from '@/lib/realtime'
+import { formatTime, groupByDay, slotStatusBadge } from '@/lib/format'
+import { PageHeader } from '@/components/layout/page-header'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { EmptyState } from '@/components/ui/empty-state'
+import { Label } from '@/components/ui/label'
+import { Select } from '@/components/ui/select'
+import { SkeletonList } from '@/components/ui/skeleton'
+import { Spinner } from '@/components/ui/spinner'
 
-/**
- * "Provider" (staff or resource, unified) isn't published to shared-types
- * yet, so this is typed locally to match GET /api/providers's response.
- */
+/** "Provider" isn't published to shared-types yet — matches GET /api/providers. */
 interface Provider {
   providerId: string
   providerType: 'staff' | 'resource'
@@ -30,27 +34,15 @@ interface Provider {
   role: 'owner' | 'staff' | null
 }
 
-const badgeVariantByStatus: Record<
-  Slot['status'],
-  'default' | 'secondary' | 'destructive'
-> = {
-  available: 'default',
-  held: 'secondary',
-  confirmed: 'secondary',
-  blocked: 'destructive',
-  cancelled: 'destructive',
-}
-
 function providerKey(providerId: string, providerType: string): string {
   return `${providerType}:${providerId}`
 }
 
 /**
- * Staff/owner schedule view — lists one provider's slots and updates them
- * live over Socket.IO (`slot:updated`) as they change, e.g. from another
- * tab blocking or booking one. Also exposes the two owner-facing slot
- * actions that had no UI yet: generating next week's slots from
- * availability templates, and manually blocking a slot.
+ * Staff/owner schedule view — one provider's slots, updated live over
+ * Socket.IO (`slot:updated`) as they change. Also exposes the two
+ * owner slot actions: generating next week's slots from availability
+ * templates, and manually blocking a slot.
  */
 export function SchedulePage() {
   const { user } = useAuth()
@@ -63,9 +55,6 @@ export function SchedulePage() {
   const [slots, setSlots] = useState<Slot[] | null>(null)
   const [slotsError, setSlotsError] = useState<string | null>(null)
   const [blockingId, setBlockingId] = useState<string | null>(null)
-  // Tracks which provider `slots` currently belongs to, so switching
-  // providers can clear the stale list immediately (see the render-time
-  // reset below) instead of briefly showing the previous provider's slots.
   const [loadedProviderKey, setLoadedProviderKey] = useState<string | null>(
     null,
   )
@@ -82,10 +71,6 @@ export function SchedulePage() {
     [providers, selectedKey],
   )
 
-  // Resetting local state in response to a prop/state change (not a side
-  // effect) belongs during render, not in an effect — React's own
-  // "adjusting state when a prop changes" pattern. Guarded so it only
-  // fires once per actual key change, not every render.
   if (selectedProvider && loadedProviderKey !== selectedKey) {
     setLoadedProviderKey(selectedKey)
     setSlots(null)
@@ -109,8 +94,6 @@ export function SchedulePage() {
       }
     }
     void loadProviders()
-    // Only ever needs to run once — providers rarely change while this
-    // page is open, and re-running would clobber the user's selection.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -119,7 +102,12 @@ export function SchedulePage() {
       const data = await apiFetch<Slot[]>(
         `/slots?providerId=${encodeURIComponent(provider.providerId)}&providerType=${provider.providerType}`,
       )
-      setSlots(data)
+      setSlots(
+        [...data].sort(
+          (a, b) =>
+            new Date(a.datetime).getTime() - new Date(b.datetime).getTime(),
+        ),
+      )
       setSlotsError(null)
     } catch (err) {
       setSlotsError(
@@ -130,28 +118,21 @@ export function SchedulePage() {
 
   useEffect(() => {
     if (!selectedProvider) return
-    // Matches the loadProviders effect above: the fetch needs to be a
-    // function declared inside the effect itself, not merely called from
-    // it, for the linter to see setSlots as happening after the await
-    // rather than synchronously within the effect. loadSlots stays a
-    // standalone function too, for handleGenerate's reuse below.
     async function run(provider: Provider) {
       await loadSlots(provider)
     }
     void run(selectedProvider)
   }, [selectedProvider])
 
-  // Live updates: the backend's event contract is still draft (see
-  // lib/realtime.ts) and only ever carries a slotId/status pair today —
-  // patch the matching row in place rather than refetching the whole list.
   useSlotUpdates((payload) => {
     if (!('slotId' in payload)) return
-    setSlots((current) =>
-      current?.map((slot) =>
-        slot.id === payload.slotId
-          ? { ...slot, status: payload.status as Slot['status'] }
-          : slot,
-      ) ?? current,
+    setSlots(
+      (current) =>
+        current?.map((slot) =>
+          slot.id === payload.slotId
+            ? { ...slot, status: payload.status as Slot['status'] }
+            : slot,
+        ) ?? current,
     )
   })
 
@@ -168,7 +149,7 @@ export function SchedulePage() {
       }>('/slots/generate', { method: 'POST', body: JSON.stringify({}) })
 
       setGenerateResult(
-        `Created ${result.created} slot(s). ${result.skippedExisting} already existed, ${result.skippedInactiveProviders} provider template(s) skipped.`,
+        `Created ${result.created} slot(s). ${result.skippedExisting} already existed; ${result.skippedInactiveProviders} template(s) skipped.`,
       )
 
       if (selectedProvider) await loadSlots(selectedProvider)
@@ -189,83 +170,100 @@ export function SchedulePage() {
 
     try {
       await apiFetch(`/slots/${slotId}/block`, { method: 'POST' })
-      // No need to refetch — the realtime listener above will also patch
-      // this row, but update optimistically so it's instant even if the
-      // socket hasn't delivered yet.
-      setSlots((current) =>
-        current?.map((slot) =>
-          slot.id === slotId ? { ...slot, status: 'blocked' } : slot,
-        ) ?? current,
+      setSlots(
+        (current) =>
+          current?.map((slot) =>
+            slot.id === slotId ? { ...slot, status: 'blocked' } : slot,
+          ) ?? current,
       )
     } catch (err) {
       setSlotsError(
-        err instanceof ApiRequestError ? err.message : 'Could not block the slot.',
+        err instanceof ApiRequestError
+          ? err.message
+          : 'Could not block the slot.',
       )
     } finally {
       setBlockingId(null)
     }
   }
 
+  const days = slots ? groupByDay(slots) : []
+
   return (
     <div className="space-y-6">
+      <PageHeader
+        title="Schedule"
+        description="Live — updates the moment a slot changes anywhere, no refresh."
+      />
+
       {isOwner && (
         <Card>
           <CardHeader>
             <CardTitle>Generate slots</CardTitle>
-            <CardDescription>
-              Turns each provider's weekly availability template into
-              bookable slots for the next 7 days. Safe to run repeatedly —
-              it never creates duplicates.
-            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Turns each provider's weekly availability template into bookable
+              slots for the next 7 days. Safe to run repeatedly — it never
+              duplicates.
+            </p>
             <Button onClick={handleGenerate} disabled={generating}>
-              {generating ? 'Generating…' : 'Generate next 7 days'}
+              {generating && <Spinner />}
+              Generate next 7 days
             </Button>
-            {generateError && <Alert variant="destructive">{generateError}</Alert>}
-            {generateResult && <Alert>{generateResult}</Alert>}
+            {generateError && (
+              <Alert variant="destructive">{generateError}</Alert>
+            )}
+            {generateResult && (
+              <Alert variant="success">{generateResult}</Alert>
+            )}
           </CardContent>
         </Card>
       )}
 
       <Card>
         <CardHeader>
-          <CardTitle>Schedule</CardTitle>
-          <CardDescription>
-            Live — updates automatically when a slot's status changes
-            elsewhere (another tab, another staff member).
-          </CardDescription>
+          <CardTitle>Slots</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          {providersError && <Alert variant="destructive">{providersError}</Alert>}
+          {providersError && (
+            <Alert variant="destructive">{providersError}</Alert>
+          )}
+
+          {providers === null && !providersError && <SkeletonList rows={3} />}
 
           {providers?.length === 0 && (
-            <p className="text-sm text-muted-foreground">
-              No providers yet — add a staff member or a resource first.
-            </p>
+            <EmptyState
+              icon={CalendarRange}
+              title="No providers yet"
+              description="Add a staff member or a resource, then set their weekly availability, before generating slots."
+            />
           )}
 
           {providers && providers.length > 0 && (
-            <select
-              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm sm:w-64"
-              value={selectedKey}
-              onChange={(e) => setSelectedKey(e.target.value)}
-            >
-              {providers.map((p) => (
-                <option
-                  key={providerKey(p.providerId, p.providerType)}
-                  value={providerKey(p.providerId, p.providerType)}
-                >
-                  {p.name} ({p.providerType})
-                </option>
-              ))}
-            </select>
+            <div className="max-w-xs space-y-2">
+              <Label htmlFor="schedule-provider">Provider</Label>
+              <Select
+                id="schedule-provider"
+                value={selectedKey}
+                onChange={(e) => setSelectedKey(e.target.value)}
+              >
+                {providers.map((p) => (
+                  <option
+                    key={providerKey(p.providerId, p.providerType)}
+                    value={providerKey(p.providerId, p.providerType)}
+                  >
+                    {p.name} ({p.providerType})
+                  </option>
+                ))}
+              </Select>
+            </div>
           )}
 
           {slotsError && <Alert variant="destructive">{slotsError}</Alert>}
 
           {selectedProvider && slots === null && !slotsError && (
-            <p className="text-sm text-muted-foreground">Loading…</p>
+            <SkeletonList rows={3} />
           )}
 
           {selectedProvider && slots?.length === 0 && (
@@ -275,39 +273,45 @@ export function SchedulePage() {
             </p>
           )}
 
-          {slots && slots.length > 0 && (
-            <div className="space-y-2">
-              {slots.map((slot) => (
-                <div
-                  key={slot.id}
-                  className="flex items-center justify-between rounded-md border border-border px-4 py-3"
-                >
-                  <div>
-                    <div className="font-medium">
-                      {new Date(slot.datetime).toLocaleString()}{' '}
-                      <Badge variant={badgeVariantByStatus[slot.status]}>
-                        {slot.status}
-                      </Badge>
+          {days.map((day) => (
+            <div key={day.key}>
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {day.label}
+              </p>
+              <div className="divide-y divide-border rounded-md border border-border">
+                {day.items.map((slot) => (
+                  <div
+                    key={slot.id}
+                    className="flex items-center justify-between gap-4 px-4 py-2.5"
+                  >
+                    <div>
+                      <p className="flex items-center gap-2 font-medium">
+                        {formatTime(slot.datetime)}
+                        <Badge variant={slotStatusBadge[slot.status]}>
+                          {slot.status}
+                        </Badge>
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {slot.durationMinutes} min · unit {slot.unitIndex}
+                      </p>
                     </div>
-                    <p className="text-sm text-muted-foreground">
-                      {slot.durationMinutes} min · unit {slot.unitIndex}
-                    </p>
-                  </div>
 
-                  {slot.status === 'available' && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={blockingId === slot.id}
-                      onClick={() => handleBlock(slot.id)}
-                    >
-                      {blockingId === slot.id ? 'Blocking…' : 'Block'}
-                    </Button>
-                  )}
-                </div>
-              ))}
+                    {slot.status === 'available' && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={blockingId === slot.id}
+                        onClick={() => handleBlock(slot.id)}
+                      >
+                        {blockingId === slot.id && <Spinner />}
+                        Block
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
-          )}
+          ))}
         </CardContent>
       </Card>
     </div>

@@ -1,9 +1,14 @@
 import { useEffect, useState } from 'react'
+import { ListChecks } from 'lucide-react'
 
 import { apiFetch, ApiRequestError } from '@/lib/api'
+import { formatDate, waitlistStatusBadge } from '@/lib/format'
+import { PageHeader } from '@/components/layout/page-header'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
+import { EmptyState } from '@/components/ui/empty-state'
+import { SkeletonList } from '@/components/ui/skeleton'
 
 interface WaitlistEntry {
   id: string
@@ -15,20 +20,10 @@ interface WaitlistEntry {
   createdAt: string
 }
 
-const badgeVariantByStatus: Record<
-  WaitlistEntry['status'],
-  'default' | 'secondary' | 'destructive'
-> = {
-  waiting: 'secondary',
-  notified: 'default',
-  expired: 'destructive',
-  converted: 'default',
-}
-
 /**
  * Staff/owner view of who's waiting for a slot to open up. Read-only —
- * matching happens automatically server-side (Slots' lazy-release
- * path triggers it), nothing for staff to action here yet.
+ * matching runs automatically server-side (the Slots lazy-release path
+ * triggers it), so there's nothing for staff to action here.
  */
 export function StaffWaitlistPage() {
   const [entries, setEntries] = useState<WaitlistEntry[] | null>(null)
@@ -52,47 +47,48 @@ export function StaffWaitlistPage() {
   }, [])
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Waitlist</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {error && <Alert variant="destructive">{error}</Alert>}
+    <div className="space-y-6">
+      <PageHeader
+        title="Waitlist"
+        description="Customers waiting on a full time. Notified automatically when a slot frees up."
+      />
 
-        {entries === null && !error && (
-          <p className="text-sm text-muted-foreground">Loading…</p>
-        )}
+      {error && <Alert variant="destructive">{error}</Alert>}
 
-        {entries?.length === 0 && (
-          <p className="text-sm text-muted-foreground">
-            Nobody's on the waitlist right now.
-          </p>
-        )}
+      {entries === null && !error && <SkeletonList rows={3} />}
 
-        {entries && entries.length > 0 && (
-          <div className="space-y-2">
+      {entries?.length === 0 && (
+        <EmptyState
+          icon={ListChecks}
+          title="Nobody's waiting"
+          description="When a time is full, customers can opt in from the public booking page — they'll appear here."
+        />
+      )}
+
+      {entries && entries.length > 0 && (
+        <Card>
+          <CardContent className="divide-y divide-border p-0">
             {entries.map((entry) => (
               <div
                 key={entry.id}
-                className="flex items-center justify-between rounded-md border border-border px-4 py-3"
+                className="flex items-center justify-between gap-4 px-4 py-3"
               >
-                <div>
-                  <div className="font-medium">
-                    {entry.customer.name}{' '}
-                    <Badge variant={badgeVariantByStatus[entry.status]}>
+                <div className="min-w-0">
+                  <p className="flex items-center gap-2 font-medium">
+                    <span className="truncate">{entry.customer.name}</span>
+                    <Badge variant={waitlistStatusBadge[entry.status]}>
                       {entry.status}
                     </Badge>
-                  </div>
+                  </p>
                   <p className="text-sm text-muted-foreground">
-                    {entry.customer.contact} · waiting since{' '}
-                    {new Date(entry.createdAt).toLocaleDateString()}
+                    {entry.customer.contact} · since {formatDate(entry.createdAt)}
                   </p>
                 </div>
               </div>
             ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+          </CardContent>
+        </Card>
+      )}
+    </div>
   )
 }

@@ -1,27 +1,27 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useParams } from 'react-router-dom'
+import { CalendarOff, Clock } from 'lucide-react'
 
 import { apiFetch, ApiRequestError } from '@/lib/api'
+import { formatPrice, formatTime, groupByDay } from '@/lib/format'
+import { cn } from '@/lib/utils'
+import { Wordmark } from '@/components/brand'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { Dialog } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Select } from '@/components/ui/select'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Spinner } from '@/components/ui/spinner'
 
-/**
- * None of these are published to shared-types yet — they're the public,
- * name-bearing projections the backend's publicCatalog/publicAvailability
- * endpoints return (deliberately different shape from the authenticated
- * Service/Provider/Slot types, since those carry internal-only fields
- * like isActive/status/role a customer has no business seeing).
- */
 interface PublicService {
   id: string
   name: string
@@ -57,14 +57,12 @@ function providerKey(providerId: string, providerType: string): string {
 }
 
 /**
- * Public, unauthenticated booking page — `/b/:slug`. Browsing (service
- * pick → provider pick → live availability grid) is fully real, backed
- * by the public catalog/availability endpoints. What it deliberately
- * does NOT do: let a customer actually claim/confirm a slot — there is
- * no anonymous booking endpoint on the backend yet (only staff/owner
- * sessions can create a booking today), so this shows that honestly
- * rather than a submit button that goes nowhere. Joining the waitlist
- * is real and works today, so that's the one action offered per slot.
+ * Public, unauthenticated booking page — `/b/:slug`. Browsing (service →
+ * provider → live availability grid) is fully real, backed by the public
+ * catalog/availability endpoints. It does NOT let a customer claim a
+ * slot directly — there's no anonymous booking endpoint (only staff/
+ * owner sessions create bookings today) — so it offers the waitlist,
+ * which is real and works, rather than a dead submit button.
  */
 export function PublicBookingPage() {
   const { slug } = useParams<{ slug: string }>()
@@ -81,15 +79,16 @@ export function PublicBookingPage() {
 
   const [buckets, setBuckets] = useState<AvailabilityBucket[] | null>(null)
   const [bucketsError, setBucketsError] = useState<string | null>(null)
-  // Tracks which (serviceId, provider) combo `buckets` currently
-  // belongs to, so switching either clears stale results immediately
-  // (render-time reset below) instead of briefly showing them.
   const [loadedAvailabilityKey, setLoadedAvailabilityKey] = useState<
     string | null
   >(null)
 
-  const [waitlistOpenFor, setWaitlistOpenFor] = useState<AvailabilityBucket | null>(
-    null,
+  const [waitlistOpenFor, setWaitlistOpenFor] =
+    useState<AvailabilityBucket | null>(null)
+
+  const selectedService = useMemo(
+    () => services?.find((s) => s.id === serviceId) ?? null,
+    [services, serviceId],
   )
 
   const selectedProvider = useMemo(
@@ -151,7 +150,12 @@ export function PublicBookingPage() {
         const data = await apiFetch<AvailabilityBucket[]>(
           `/businesses/${slug}/availability?${params.toString()}`,
         )
-        setBuckets(data)
+        setBuckets(
+          [...data].sort(
+            (a, b) =>
+              new Date(a.datetime).getTime() - new Date(b.datetime).getTime(),
+          ),
+        )
         setBucketsError(null)
       } catch (err) {
         setBucketsError(
@@ -166,151 +170,191 @@ export function PublicBookingPage() {
 
   if (notFound) {
     return (
-      <div className="mx-auto max-w-lg px-6 py-16 text-center">
-        <p className="text-lg font-medium">Business not found</p>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Double-check the link — this booking page doesn't exist.
-        </p>
+      <div className="grid min-h-screen place-items-center bg-hero-grid px-6">
+        <div className="text-center">
+          <CalendarOff className="mx-auto size-8 text-muted-foreground" />
+          <p className="mt-3 text-lg font-semibold">Business not found</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Double-check the link — this booking page doesn't exist.
+          </p>
+        </div>
       </div>
     )
   }
 
+  const days = buckets ? groupByDay(buckets) : []
+
   return (
-    <div className="mx-auto max-w-3xl space-y-6 px-6 py-10">
-      <div>
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          QueueLess++
-        </p>
-        <h1 className="text-2xl font-semibold">
-          {business ? business.name : 'Book an appointment'}
-        </h1>
+    <div className="min-h-screen bg-hero-grid">
+      <div className="mx-auto max-w-3xl px-6 py-12">
+        <Wordmark />
+
+        <div className="mt-8">
+          {!business && !businessError ? (
+            <Skeleton className="h-9 w-56" />
+          ) : (
+            <h1 className="text-3xl font-bold tracking-tight">
+              {business?.name ?? 'Book an appointment'}
+            </h1>
+          )}
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            Pick a service and time. We'll hold it while you confirm.
+          </p>
+        </div>
+
+        {businessError && (
+          <Alert variant="destructive" className="mt-6">
+            {businessError}
+          </Alert>
+        )}
+
+        {services && services.length === 0 && (
+          <Alert className="mt-6">
+            This business hasn't set up any bookable services yet.
+          </Alert>
+        )}
+
+        {services && services.length > 0 && (
+          <div className="mt-6 space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Choose a service</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="public-service">Service</Label>
+                    <Select
+                      id="public-service"
+                      value={serviceId}
+                      onChange={(e) => setServiceId(e.target.value)}
+                    >
+                      {services.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name} · {s.durationMinutes} min ·{' '}
+                          {formatPrice(s.price)}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="public-provider">Provider</Label>
+                    <Select
+                      id="public-provider"
+                      value={providerKeyValue}
+                      onChange={(e) => setProviderKeyValue(e.target.value)}
+                    >
+                      <option value="">Any provider</option>
+                      {providers?.map((p) => (
+                        <option
+                          key={providerKey(p.providerId, p.providerType)}
+                          value={providerKey(p.providerId, p.providerType)}
+                        >
+                          {p.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                </div>
+
+                {selectedService && (
+                  <p className="text-sm text-muted-foreground">
+                    {selectedService.durationMinutes} minutes ·{' '}
+                    {formatPrice(selectedService.price)}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Available times</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                {bucketsError && (
+                  <Alert variant="destructive">{bucketsError}</Alert>
+                )}
+
+                {buckets === null && !bucketsError && (
+                  <div className="space-y-3">
+                    <Skeleton className="h-4 w-32" />
+                    <div className="flex flex-wrap gap-2">
+                      {Array.from({ length: 6 }).map((_, i) => (
+                        <Skeleton key={i} className="h-9 w-24" />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {buckets?.length === 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    No upcoming times for this service right now — join the
+                    waitlist below to be notified.
+                  </p>
+                )}
+
+                {days.map((day) => (
+                  <div key={day.key}>
+                    <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      {day.label}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {day.items.map((bucket) => {
+                        const full = bucket.remaining === 0
+                        const multi = bucket.total > 1
+                        return (
+                          <button
+                            key={`${bucket.providerId}-${bucket.datetime}`}
+                            type="button"
+                            onClick={() => setWaitlistOpenFor(bucket)}
+                            className={cn(
+                              'inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium transition-colors',
+                              full
+                                ? 'border-border bg-secondary/50 text-muted-foreground hover:border-primary/30'
+                                : 'border-input bg-card hover:border-primary hover:bg-accent',
+                            )}
+                          >
+                            {formatTime(bucket.datetime)}
+                            {multi && (
+                              <Badge
+                                variant={full ? 'destructive' : 'success'}
+                                className="px-1.5 py-0"
+                              >
+                                {bucket.remaining}/{bucket.total}
+                              </Badge>
+                            )}
+                            {!multi && full && (
+                              <Badge
+                                variant="destructive"
+                                className="px-1.5 py-0"
+                              >
+                                full
+                              </Badge>
+                            )}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+
+                <Alert>
+                  <span className="flex items-start gap-2">
+                    <Clock className="mt-0.5 size-4 shrink-0" />
+                    Online self-checkout isn't live yet — pick a time to join
+                    the waitlist and we'll email you the moment it's
+                    confirmable, or contact the business directly to book.
+                  </span>
+                </Alert>
+              </CardContent>
+            </Card>
+          </div>
+        )}
       </div>
 
-      {businessError && <Alert variant="destructive">{businessError}</Alert>}
-
-      {!services && !businessError && (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      )}
-
-      {services && services.length === 0 && (
-        <p className="text-sm text-muted-foreground">
-          This business hasn't set up any bookable services yet.
-        </p>
-      )}
-
-      {services && services.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Choose a service</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="public-service">Service</Label>
-                <select
-                  id="public-service"
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                  value={serviceId}
-                  onChange={(e) => setServiceId(e.target.value)}
-                >
-                  {services.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} ({s.durationMinutes} min)
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="public-provider">Provider</Label>
-                <select
-                  id="public-provider"
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                  value={providerKeyValue}
-                  onChange={(e) => setProviderKeyValue(e.target.value)}
-                >
-                  <option value="">Any provider</option>
-                  {providers?.map((p) => (
-                    <option
-                      key={providerKey(p.providerId, p.providerType)}
-                      value={providerKey(p.providerId, p.providerType)}
-                    >
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {bucketsError && <Alert variant="destructive">{bucketsError}</Alert>}
-
-            {buckets === null && !bucketsError && (
-              <p className="text-sm text-muted-foreground">Loading times…</p>
-            )}
-
-            {buckets?.length === 0 && (
-              <p className="text-sm text-muted-foreground">
-                No upcoming times for this service right now.
-              </p>
-            )}
-
-            {buckets && buckets.length > 0 && (
-              <div className="space-y-2">
-                {buckets.map((bucket) => {
-                  const provider = providers?.find(
-                    (p) =>
-                      p.providerId === bucket.providerId &&
-                      p.providerType === bucket.providerType,
-                  )
-                  const full = bucket.remaining === 0
-
-                  return (
-                    <div
-                      key={`${bucket.providerId}-${bucket.datetime}`}
-                      className="flex items-center justify-between rounded-md border border-border px-4 py-3"
-                    >
-                      <div>
-                        <p className="font-medium">
-                          {new Date(bucket.datetime).toLocaleString()}
-                        </p>
-                        <div className="text-sm text-muted-foreground">
-                          {provider?.name ?? 'Provider'} ·{' '}
-                          {bucket.total > 1 ? (
-                            <Badge variant={full ? 'destructive' : 'default'}>
-                              {bucket.remaining} of {bucket.total} left
-                            </Badge>
-                          ) : full ? (
-                            <Badge variant="destructive">Taken</Badge>
-                          ) : (
-                            <Badge variant="default">Available</Badge>
-                          )}
-                        </div>
-                      </div>
-
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setWaitlistOpenFor(bucket)}
-                      >
-                        {full ? 'Join waitlist' : 'Notify me'}
-                      </Button>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-
-            <Alert>
-              Online self-checkout isn't live yet — join the waitlist for a
-              time above and we'll email you the moment it opens up, or
-              contact the business directly to book.
-            </Alert>
-          </CardContent>
-        </Card>
-      )}
-
       {waitlistOpenFor && business && (
-        <WaitlistJoinCard
+        <WaitlistDialog
           businessId={business.id}
           bucket={waitlistOpenFor}
           onClose={() => setWaitlistOpenFor(null)}
@@ -320,7 +364,7 @@ export function PublicBookingPage() {
   )
 }
 
-function WaitlistJoinCard({
+function WaitlistDialog({
   businessId,
   bucket,
   onClose,
@@ -363,51 +407,65 @@ function WaitlistJoinCard({
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Get notified</CardTitle>
-        <CardDescription>
-          {new Date(bucket.datetime).toLocaleString()}
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {done ? (
-          <Alert>You're on the list — we'll email you if this opens up.</Alert>
+    <Dialog
+      open
+      onClose={onClose}
+      title="Join the waitlist"
+      description={`${formatTime(bucket.datetime)} · ${new Date(
+        bucket.datetime,
+      ).toLocaleDateString(undefined, {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+      })}`}
+      footer={
+        done ? (
+          <Button onClick={onClose}>Done</Button>
         ) : (
-          <form className="space-y-4" onSubmit={handleSubmit}>
-            {error && <Alert variant="destructive">{error}</Alert>}
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="waitlist-name">Name</Label>
-                <Input
-                  id="waitlist-name"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="waitlist-contact">Email</Label>
-                <Input
-                  id="waitlist-contact"
-                  type="email"
-                  required
-                  value={contact}
-                  onChange={(e) => setContact(e.target.value)}
-                />
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <Button type="submit" disabled={submitting}>
-                {submitting ? 'Joining…' : 'Join waitlist'}
-              </Button>
-              <Button type="button" variant="outline" onClick={onClose}>
-                Cancel
-              </Button>
-            </div>
-          </form>
-        )}
-      </CardContent>
-    </Card>
+          <>
+            <Button variant="outline" onClick={onClose} disabled={submitting}>
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              form="waitlist-form"
+              disabled={submitting}
+            >
+              {submitting && <Spinner />}
+              Join waitlist
+            </Button>
+          </>
+        )
+      }
+    >
+      {done ? (
+        <Alert variant="success">
+          You're on the list — we'll email you if this time opens up.
+        </Alert>
+      ) : (
+        <form id="waitlist-form" className="space-y-4" onSubmit={handleSubmit}>
+          {error && <Alert variant="destructive">{error}</Alert>}
+          <div className="space-y-2">
+            <Label htmlFor="waitlist-name">Name</Label>
+            <Input
+              id="waitlist-name"
+              required
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="waitlist-contact">Email</Label>
+            <Input
+              id="waitlist-contact"
+              type="email"
+              required
+              value={contact}
+              onChange={(e) => setContact(e.target.value)}
+            />
+          </div>
+        </form>
+      )}
+    </Dialog>
   )
 }

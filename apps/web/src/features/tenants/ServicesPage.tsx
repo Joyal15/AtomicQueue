@@ -1,31 +1,37 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { Scissors } from 'lucide-react'
 
 import type { Service } from '@queueless/shared-types'
 
 import { apiFetch, ApiRequestError } from '@/lib/api'
 import { useAuth } from '@/lib/use-auth'
+import { formatPrice } from '@/lib/format'
+import { PageHeader } from '@/components/layout/page-header'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { EmptyState } from '@/components/ui/empty-state'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { SkeletonList } from '@/components/ui/skeleton'
+import { Spinner } from '@/components/ui/spinner'
 
 /**
- * Service catalog — GET/POST /api/services, DELETE /api/services/:id
- * (which deactivates, never a hard delete). Owner or staff can
- * view/create/deactivate.
+ * Service catalog — GET/POST /api/services, PATCH .../deactivate and
+ * .../reactivate (deactivate runs the §2c cascade; there's no hard
+ * delete). Owner or staff can view/create/toggle.
  */
 export function ServicesPage() {
   const { business } = useAuth()
   const [services, setServices] = useState<Service[] | null>(null)
   const [listError, setListError] = useState<string | null>(null)
+  const [pendingId, setPendingId] = useState<string | null>(null)
 
   const [name, setName] = useState('')
   const [durationMinutes, setDurationMinutes] = useState(30)
@@ -48,8 +54,6 @@ export function ServicesPage() {
   }
 
   useEffect(() => {
-    // Wrapped so the setState calls happen after an await, not
-    // synchronously in the effect body (react-hooks/set-state-in-effect).
     async function loadOnMount() {
       await loadServices()
     }
@@ -85,32 +89,46 @@ export function ServicesPage() {
     }
   }
 
-  async function handleDeactivate(serviceId: string) {
+  async function toggleActive(service: Service) {
+    setPendingId(service.id)
+    setListError(null)
     try {
-      await apiFetch(`/services/${serviceId}`, { method: 'DELETE' })
+      await apiFetch(
+        `/services/${service.id}/${service.isActive ? 'deactivate' : 'reactivate'}`,
+        { method: 'PATCH' },
+      )
       await loadServices()
     } catch (err) {
       setListError(
         err instanceof ApiRequestError
           ? err.message
-          : 'Could not deactivate the service.',
+          : 'Could not update the service.',
       )
+    } finally {
+      setPendingId(null)
     }
   }
 
+  const activeCount = services?.filter((s) => s.isActive).length ?? 0
+
   return (
     <div className="space-y-6">
+      <PageHeader
+        title="Services"
+        description={`What ${business?.name ?? 'your business'} offers to book.`}
+      />
+
       <Card>
         <CardHeader>
           <CardTitle>Add a service</CardTitle>
-          <CardDescription>
-            What {business?.name ?? 'your business'} offers to book.
-          </CardDescription>
         </CardHeader>
         <CardContent>
-          <form className="grid gap-4 sm:grid-cols-3" onSubmit={handleCreate}>
+          <form
+            className="grid gap-4 sm:grid-cols-[1fr_10rem_10rem_auto] sm:items-end"
+            onSubmit={handleCreate}
+          >
             {formError && (
-              <div className="sm:col-span-3">
+              <div className="sm:col-span-full">
                 <Alert variant="destructive">{formError}</Alert>
               </div>
             )}
@@ -120,13 +138,14 @@ export function ServicesPage() {
               <Input
                 id="service-name"
                 required
+                placeholder="Haircut"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="service-duration">Duration (minutes)</Label>
+              <Label htmlFor="service-duration">Duration (min)</Label>
               <Input
                 id="service-duration"
                 type="number"
@@ -149,58 +168,64 @@ export function ServicesPage() {
               />
             </div>
 
-            <div className="sm:col-span-3">
-              <Button type="submit" disabled={submitting}>
-                {submitting ? 'Adding…' : 'Add service'}
-              </Button>
-            </div>
+            <Button type="submit" disabled={submitting}>
+              {submitting && <Spinner />}
+              Add
+            </Button>
           </form>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Services</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>Catalog</CardTitle>
+            {services && services.length > 0 && (
+              <span className="text-xs text-muted-foreground">
+                {activeCount} active · {services.length - activeCount} inactive
+              </span>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="space-y-3">
           {listError && <Alert variant="destructive">{listError}</Alert>}
 
-          {services === null && !listError && (
-            <p className="text-sm text-muted-foreground">Loading…</p>
-          )}
+          {services === null && !listError && <SkeletonList rows={3} />}
 
           {services?.length === 0 && (
-            <p className="text-sm text-muted-foreground">
-              No services yet — add one above.
-            </p>
+            <EmptyState
+              icon={Scissors}
+              title="No services yet"
+              description="Add your first bookable service above — a name, how long it takes, and the price."
+            />
           )}
 
           {services?.map((service) => (
             <div
               key={service.id}
-              className="flex items-center justify-between rounded-md border border-border px-4 py-3"
+              className="flex items-center justify-between gap-4 rounded-md border border-border px-4 py-3"
             >
-              <div>
-                <p className="font-medium">
-                  {service.name}{' '}
-                  <Badge variant={service.isActive ? 'default' : 'secondary'}>
+              <div className="min-w-0">
+                <p className="flex items-center gap-2 font-medium">
+                  <span className="truncate">{service.name}</span>
+                  <Badge variant={service.isActive ? 'success' : 'secondary'}>
                     {service.isActive ? 'active' : 'inactive'}
                   </Badge>
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  {service.durationMinutes} min · {service.price}
+                  {service.durationMinutes} min · {formatPrice(service.price)}
                 </p>
               </div>
 
-              {service.isActive && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleDeactivate(service.id)}
-                >
-                  Deactivate
-                </Button>
-              )}
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={pendingId === service.id}
+                onClick={() => toggleActive(service)}
+              >
+                {pendingId === service.id && <Spinner />}
+                {service.isActive ? 'Deactivate' : 'Reactivate'}
+              </Button>
             </div>
           ))}
         </CardContent>

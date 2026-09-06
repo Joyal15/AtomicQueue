@@ -1,19 +1,24 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { CalendarClock, CheckCircle2, Clock, Lock } from 'lucide-react'
 
 import { apiFetch, ApiRequestError } from '@/lib/api'
+import { bookingStatusBadge, formatDateTime } from '@/lib/format'
+import { Wordmark } from '@/components/brand'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { Dialog } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Select } from '@/components/ui/select'
+import { Spinner } from '@/components/ui/spinner'
 
 interface ManagedBooking {
   id: string
@@ -21,10 +26,22 @@ interface ManagedBooking {
   customer: { name: string; contactType: 'email' | 'phone'; contact: string }
   createdAt: string
   slot: {
+    providerId: string
+    providerType: 'staff' | 'resource'
+    serviceId: string
     datetime: string
     durationMinutes: number
   } | null
+  businessSlug: string | null
   accessTier: 'manage' | 'view-only'
+}
+
+interface AvailabilityBucket {
+  providerId: string
+  providerType: 'staff' | 'resource'
+  serviceId: string
+  datetime: string
+  remaining: number
 }
 
 type LoadState =
@@ -36,23 +53,25 @@ type LoadState =
 /**
  * Customer magic-link manage page — `/manage?bookingId=&token=`.
  * Exchanges the raw token from the URL for a `booking_access` cookie
- * (POST, never left as a query string beyond this one load), scrubs
- * the URL immediately after, then loads the booking via the cookie.
- * Reschedule/cancel actions don't exist on the backend yet (Phase 4) —
- * this shows the booking and its access tier honestly rather than
- * offering buttons that don't work yet.
+ * (POST, never left as a query string beyond one load), scrubs the URL,
+ * then loads the booking via the cookie. Cancel and reschedule route
+ * through the same server functions staff use; both are gated to the
+ * "manage" access tier (before the business's change cutoff).
  */
 export function MagicLinkManagePage() {
   const [searchParams, setSearchParams] = useSearchParams()
-  // Read once at module-init time from the URL present on first render —
-  // whether a link was provided at all is derivable synchronously, so it
-  // doesn't need an effect (only the actual exchange, a real side
-  // effect, does).
   const [initialBookingId] = useState(() => searchParams.get('bookingId'))
   const [initialToken] = useState(() => searchParams.get('token'))
   const [state, setState] = useState<LoadState>(
     initialBookingId && initialToken ? { kind: 'loading' } : { kind: 'no-link' },
   )
+  const [rescheduleOpen, setRescheduleOpen] = useState(false)
+  const [cancelOpen, setCancelOpen] = useState(false)
+
+  async function reload() {
+    const booking = await apiFetch<ManagedBooking>('/bookings/manage')
+    setState({ kind: 'loaded', booking })
+  }
 
   useEffect(() => {
     if (!initialBookingId || !initialToken) return
@@ -63,14 +82,8 @@ export function MagicLinkManagePage() {
           method: 'POST',
           body: JSON.stringify({ bookingId, token }),
         })
-
-        // Scrub the raw token from the visible URL now that it's been
-        // exchanged for a cookie — it should never sit in browser
-        // history/referrer headers longer than one load.
         setSearchParams({}, { replace: true })
-
-        const booking = await apiFetch<ManagedBooking>('/bookings/manage')
-        setState({ kind: 'loaded', booking })
+        await reload()
       } catch (err) {
         setState({
           kind: 'error',
@@ -85,74 +98,360 @@ export function MagicLinkManagePage() {
     }
 
     void exchangeAndLoad(initialBookingId, initialToken)
-    // Only ever needs to run once, off the URL params present on load —
-    // re-running after setSearchParams({}) would just loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const booking = state.kind === 'loaded' ? state.booking : null
+  const canManage =
+    booking?.status === 'confirmed' && booking.accessTier === 'manage'
+
   return (
-    <div className="mx-auto max-w-lg space-y-6 px-6 py-10">
-      <div>
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          QueueLess++
-        </p>
-        <h1 className="text-2xl font-semibold">Manage your booking</h1>
+    <div className="min-h-screen bg-hero-grid">
+      <div className="mx-auto max-w-lg px-6 py-12">
+        <Wordmark />
+        <h1 className="mt-6 text-2xl font-semibold tracking-tight">
+          Manage your booking
+        </h1>
+
+        <div className="mt-6 space-y-4">
+          {state.kind === 'loading' && (
+            <Card>
+              <CardContent className="flex items-center gap-3 py-6 text-sm text-muted-foreground">
+                <Spinner /> Loading your booking…
+              </CardContent>
+            </Card>
+          )}
+
+          {state.kind === 'no-link' && <ResendForm />}
+
+          {state.kind === 'error' && (
+            <>
+              <Alert variant="destructive">{state.message}</Alert>
+              <ResendForm />
+            </>
+          )}
+
+          {booking && (
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between gap-3">
+                  <CardTitle className="text-lg">
+                    {booking.slot
+                      ? formatDateTime(booking.slot.datetime)
+                      : 'Booking'}
+                  </CardTitle>
+                  <Badge variant={bookingStatusBadge[booking.status]}>
+                    {booking.status}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <dl className="grid grid-cols-2 gap-3 text-sm">
+                  {booking.slot && (
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Duration</dt>
+                      <dd className="font-medium">
+                        {booking.slot.durationMinutes} min
+                      </dd>
+                    </div>
+                  )}
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Booked for</dt>
+                    <dd className="font-medium">{booking.customer.name}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Contact</dt>
+                    <dd className="font-medium">{booking.customer.contact}</dd>
+                  </div>
+                </dl>
+
+                {booking.status === 'confirmed' &&
+                  booking.accessTier === 'view-only' && (
+                    <Alert>
+                      <span className="flex items-center gap-2">
+                        <Lock className="size-4 shrink-0" />
+                        Past the change cutoff — this booking is view-only now.
+                        Contact the business directly if you need a change.
+                      </span>
+                    </Alert>
+                  )}
+
+                {booking.status !== 'confirmed' && (
+                  <Alert>
+                    This booking is {booking.status}. Nothing further to do
+                    here.
+                  </Alert>
+                )}
+
+                {canManage && (
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => setRescheduleOpen(true)}
+                    >
+                      <CalendarClock className="size-4" />
+                      Reschedule
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      onClick={() => setCancelOpen(true)}
+                    >
+                      Cancel booking
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </div>
       </div>
 
-      {state.kind === 'loading' && (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      )}
-
-      {state.kind === 'no-link' && <ResendForm />}
-
-      {state.kind === 'error' && (
-        <div className="space-y-4">
-          <Alert variant="destructive">{state.message}</Alert>
-          <ResendForm />
-        </div>
-      )}
-
-      {state.kind === 'loaded' && (
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              {state.booking.slot
-                ? new Date(state.booking.slot.datetime).toLocaleString()
-                : 'Booking'}
-            </CardTitle>
-            <CardDescription>
-              {state.booking.slot
-                ? `${state.booking.slot.durationMinutes} min`
-                : null}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center gap-2">
-              <Badge
-                variant={
-                  state.booking.status === 'confirmed' ? 'default' : 'secondary'
-                }
-              >
-                {state.booking.status}
-              </Badge>
-              {state.booking.accessTier === 'view-only' && (
-                <Badge variant="secondary">View only — past change cutoff</Badge>
-              )}
-            </div>
-
-            <div className="text-sm text-muted-foreground">
-              Booked under {state.booking.customer.name} (
-              {state.booking.customer.contact})
-            </div>
-
-            <Alert>
-              Reschedule and cancellation aren't available yet — check back
-              soon, or contact the business directly for changes.
-            </Alert>
-          </CardContent>
-        </Card>
+      {booking && (
+        <>
+          <RescheduleDialog
+            open={rescheduleOpen}
+            booking={booking}
+            onClose={() => setRescheduleOpen(false)}
+            onDone={async () => {
+              setRescheduleOpen(false)
+              await reload()
+            }}
+          />
+          <CancelDialog
+            open={cancelOpen}
+            booking={booking}
+            onClose={() => setCancelOpen(false)}
+            onDone={async () => {
+              setCancelOpen(false)
+              await reload()
+            }}
+          />
+        </>
       )}
     </div>
+  )
+}
+
+function RescheduleDialog({
+  open,
+  booking,
+  onClose,
+  onDone,
+}: {
+  open: boolean
+  booking: ManagedBooking
+  onClose: () => void
+  onDone: () => Promise<void>
+}) {
+  const [buckets, setBuckets] = useState<AvailabilityBucket[] | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [datetime, setDatetime] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const slot = booking.slot
+  const slug = booking.businessSlug
+
+  useEffect(() => {
+    if (!open || !slot || !slug) return
+    setBuckets(null)
+    setDatetime('')
+    setError(null)
+    setLoadError(null)
+
+    async function load(currentSlug: string, s: NonNullable<ManagedBooking['slot']>) {
+      try {
+        const params = new URLSearchParams({
+          serviceId: s.serviceId,
+          providerId: s.providerId,
+          providerType: s.providerType,
+        })
+        const data = await apiFetch<AvailabilityBucket[]>(
+          `/businesses/${currentSlug}/availability?${params.toString()}`,
+        )
+        setBuckets(
+          data
+            .filter(
+              (b) => b.remaining > 0 && b.datetime !== s.datetime,
+            )
+            .sort(
+              (a, b) =>
+                new Date(a.datetime).getTime() -
+                new Date(b.datetime).getTime(),
+            ),
+        )
+      } catch (err) {
+        setLoadError(
+          err instanceof ApiRequestError
+            ? err.message
+            : 'Could not load available times.',
+        )
+      }
+    }
+    void load(slug, slot)
+  }, [open, slot, slug])
+
+  async function handleConfirm() {
+    if (!slot || !datetime) return
+    setSubmitting(true)
+    setError(null)
+    try {
+      await apiFetch('/bookings/manage/reschedule', {
+        method: 'POST',
+        body: JSON.stringify({
+          providerId: slot.providerId,
+          providerType: slot.providerType,
+          serviceId: slot.serviceId,
+          datetime,
+        }),
+      })
+      await onDone()
+    } catch (err) {
+      setError(
+        err instanceof ApiRequestError
+          ? err.message
+          : 'Could not reschedule. The time may have just been taken.',
+      )
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="Reschedule"
+      description={
+        slot
+          ? `Currently ${formatDateTime(slot.datetime)}.`
+          : undefined
+      }
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose} disabled={submitting}>
+            Keep current time
+          </Button>
+          <Button onClick={handleConfirm} disabled={submitting || !datetime}>
+            {submitting && <Spinner />}
+            Confirm new time
+          </Button>
+        </>
+      }
+    >
+      {!slug && (
+        <Alert variant="destructive">
+          Rescheduling isn't available for this booking online.
+        </Alert>
+      )}
+      {error && (
+        <Alert variant="destructive" className="mb-4">
+          {error}
+        </Alert>
+      )}
+      {loadError && (
+        <Alert variant="destructive" className="mb-4">
+          {loadError}
+        </Alert>
+      )}
+
+      {slug && buckets === null && !loadError && (
+        <p className="text-sm text-muted-foreground">Loading available times…</p>
+      )}
+
+      {buckets && buckets.length === 0 && (
+        <p className="text-sm text-muted-foreground">
+          No other open times right now. Try again later, or contact the
+          business.
+        </p>
+      )}
+
+      {buckets && buckets.length > 0 && (
+        <div className="space-y-2">
+          <Label htmlFor="cust-reschedule-time">New time</Label>
+          <Select
+            id="cust-reschedule-time"
+            value={datetime}
+            onChange={(e) => setDatetime(e.target.value)}
+          >
+            <option value="" disabled>
+              Select a time
+            </option>
+            {buckets.map((b) => (
+              <option key={b.datetime} value={b.datetime}>
+                {formatDateTime(b.datetime)}
+              </option>
+            ))}
+          </Select>
+        </div>
+      )}
+    </Dialog>
+  )
+}
+
+function CancelDialog({
+  open,
+  booking,
+  onClose,
+  onDone,
+}: {
+  open: boolean
+  booking: ManagedBooking
+  onClose: () => void
+  onDone: () => Promise<void>
+}) {
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleConfirm() {
+    setSubmitting(true)
+    setError(null)
+    try {
+      await apiFetch('/bookings/manage/cancel', { method: 'POST' })
+      await onDone()
+    } catch (err) {
+      setError(
+        err instanceof ApiRequestError
+          ? err.message
+          : 'Could not cancel the booking.',
+      )
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="Cancel this booking?"
+      description="This frees the time for someone else and can't be undone."
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose} disabled={submitting}>
+            Keep booking
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={handleConfirm}
+            disabled={submitting}
+          >
+            {submitting && <Spinner />}
+            Cancel booking
+          </Button>
+        </>
+      }
+    >
+      {error && <Alert variant="destructive">{error}</Alert>}
+      <div className="flex items-center gap-3 rounded-md border border-border bg-secondary/30 px-4 py-3 text-sm">
+        <Clock className="size-4 shrink-0 text-muted-foreground" />
+        <span>
+          {booking.slot
+            ? formatDateTime(booking.slot.datetime)
+            : 'Time unknown'}
+        </span>
+      </div>
+    </Dialog>
   )
 }
 
@@ -171,10 +470,8 @@ function ResendForm() {
         body: JSON.stringify({ contact }),
       })
     } catch {
-      // Deliberately ignored: the backend already returns a neutral
-      // response regardless of match (enumeration resistance) — a
-      // network-level failure is the only real error case here, and
-      // showing the same neutral message either way costs nothing.
+      // The backend returns a neutral response regardless of match
+      // (enumeration resistance) — show the same message either way.
     } finally {
       setSubmitting(false)
       setSent(true)
@@ -184,21 +481,23 @@ function ResendForm() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Resend your link</CardTitle>
-        <CardDescription>
-          Enter the email or phone you booked with.
-        </CardDescription>
+        <CardTitle>Get your link</CardTitle>
       </CardHeader>
       <CardContent>
         {sent ? (
-          <Alert>
-            If that contact matches an upcoming booking, a link has been
-            sent.
+          <Alert variant="success">
+            <span className="flex items-center gap-2">
+              <CheckCircle2 className="size-4 shrink-0" />
+              If that contact matches an upcoming booking, a link is on its
+              way.
+            </span>
           </Alert>
         ) : (
           <form className="space-y-4" onSubmit={handleSubmit}>
             <div className="space-y-2">
-              <Label htmlFor="resend-contact">Email or phone</Label>
+              <Label htmlFor="resend-contact">
+                Email or phone you booked with
+              </Label>
               <Input
                 id="resend-contact"
                 required
@@ -207,6 +506,7 @@ function ResendForm() {
               />
             </div>
             <Button type="submit" disabled={submitting}>
+              {submitting && <Spinner />}
               {submitting ? 'Sending…' : 'Send link'}
             </Button>
           </form>

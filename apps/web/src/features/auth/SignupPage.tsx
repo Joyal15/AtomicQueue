@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useState, type ComponentProps, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
 import type { Business } from '@queueless/shared-types'
@@ -8,9 +8,10 @@ import { useAuth } from '@/lib/use-auth'
 import type { AuthUser } from '@/lib/auth-context-value'
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Spinner } from '@/components/ui/spinner'
+import { AuthShell } from './AuthShell'
 
 interface SignupResponse {
   user: AuthUser
@@ -60,87 +61,105 @@ export function SignupPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-12">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>Create your business</CardTitle>
-          <CardDescription>
-            Sign up as the owner — this creates your account and your
-            business together.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form className="space-y-4" onSubmit={handleSubmit}>
-            {error && <Alert variant="destructive">{error}</Alert>}
+    <AuthShell
+      title="Create your business"
+      subtitle="Sign up as the owner — this creates your account and your business together."
+      footer={
+        <>
+          Already have an account?{' '}
+          <Link
+            to="/login"
+            className="font-medium text-primary underline-offset-4 hover:underline"
+          >
+            Log in
+          </Link>
+        </>
+      }
+    >
+      <form className="space-y-4" onSubmit={handleSubmit}>
+        {error && <Alert variant="destructive">{error}</Alert>}
 
-            <div className="space-y-2">
-              <Label htmlFor="businessName">Business name</Label>
-              <Input
-                id="businessName"
-                required
-                value={businessName}
-                onChange={(e) => setBusinessName(e.target.value)}
-              />
-              {fieldErrors.businessName && (
-                <p className="text-sm text-destructive">{fieldErrors.businessName}</p>
-              )}
-            </div>
+        <Field
+          id="businessName"
+          label="Business name"
+          value={businessName}
+          onChange={setBusinessName}
+          error={fieldErrors.businessName}
+          autoComplete="organization"
+        />
+        <Field
+          id="name"
+          label="Your name"
+          value={name}
+          onChange={setName}
+          error={fieldErrors.name}
+          autoComplete="name"
+        />
+        <Field
+          id="email"
+          label="Email"
+          type="email"
+          value={email}
+          onChange={setEmail}
+          error={fieldErrors.email}
+          autoComplete="email"
+        />
+        <Field
+          id="password"
+          label="Password"
+          type="password"
+          value={password}
+          onChange={setPassword}
+          error={fieldErrors.password}
+          minLength={8}
+          autoComplete="new-password"
+          hint="At least 8 characters."
+        />
 
-            <div className="space-y-2">
-              <Label htmlFor="name">Your name</Label>
-              <Input
-                id="name"
-                required
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-              {fieldErrors.name && (
-                <p className="text-sm text-destructive">{fieldErrors.name}</p>
-              )}
-            </div>
+        <Button type="submit" className="w-full" disabled={submitting}>
+          {submitting && <Spinner />}
+          {submitting ? 'Creating…' : 'Create business'}
+        </Button>
+      </form>
+    </AuthShell>
+  )
+}
 
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-              {fieldErrors.email && (
-                <p className="text-sm text-destructive">{fieldErrors.email}</p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                required
-                minLength={8}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-              {fieldErrors.password && (
-                <p className="text-sm text-destructive">{fieldErrors.password}</p>
-              )}
-            </div>
-
-            <Button type="submit" className="w-full" disabled={submitting}>
-              {submitting ? 'Creating…' : 'Create business'}
-            </Button>
-          </form>
-
-          <p className="mt-6 text-center text-sm text-muted-foreground">
-            Already have an account?{' '}
-            <Link to="/login" className="font-medium text-foreground underline underline-offset-4">
-              Log in
-            </Link>
-          </p>
-        </CardContent>
-      </Card>
+function Field({
+  id,
+  label,
+  value,
+  onChange,
+  error,
+  hint,
+  type = 'text',
+  ...rest
+}: {
+  id: string
+  label: string
+  value: string
+  onChange: (v: string) => void
+  error?: string
+  hint?: string
+  type?: string
+} & Omit<ComponentProps<'input'>, 'id' | 'value' | 'onChange' | 'type'>) {
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id}>{label}</Label>
+      <Input
+        id={id}
+        type={type}
+        required
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-invalid={error ? true : undefined}
+        {...rest}
+      />
+      {error ? (
+        <p className="text-sm text-destructive">{error}</p>
+      ) : hint ? (
+        <p className="text-xs text-muted-foreground">{hint}</p>
+      ) : null}
     </div>
   )
 }

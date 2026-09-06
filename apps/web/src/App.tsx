@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 
 import { useAuth } from '@/lib/use-auth'
+import { LandingPage } from '@/features/marketing/LandingPage'
 import { LoginPage } from '@/features/auth/LoginPage'
 import { SignupPage } from '@/features/auth/SignupPage'
 import { RequireAuth } from '@/features/auth/RequireAuth'
@@ -20,6 +21,7 @@ function App() {
 
   return (
     <Routes>
+      <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/signup" element={<SignupPage />} />
       <Route path="/b/:slug" element={<PublicBookingPage />} />
@@ -37,12 +39,11 @@ function App() {
         </Route>
       </Route>
 
-      {/* Other routes aren't built yet; fall back to login or dashboard. */}
       <Route
         path="*"
         element={
           <Navigate
-            to={status === 'authenticated' ? '/dashboard' : '/login'}
+            to={status === 'authenticated' ? '/dashboard' : '/'}
             replace
           />
         }

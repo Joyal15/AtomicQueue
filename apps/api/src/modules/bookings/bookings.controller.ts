@@ -237,7 +237,8 @@ export const getCustomerBookingController = asyncHandler(async (req, res) => {
   res.json({
     data: {
       ...booking.booking,
-      slot:booking.slot,
+      slot: booking.slot,
+      businessSlug: booking.businessSlug,
       accessTier: req.bookingAccess.tier,
     },
   });

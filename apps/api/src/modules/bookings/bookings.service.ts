@@ -4,6 +4,7 @@ import { AppError } from '../../lib/Apperror.js';
 
 import { logger } from '../../lib/logger.js';
 import { redis } from '../../lib/redis.js';
+import { getBusinessById } from '../tenants/index.js';
 import { enqueueNoShowScoring } from '../noshow/index.js';
 import {
   claimSlot,
@@ -916,6 +917,10 @@ export async function getBookingForCustomer(
   // §10/§13).
   booking: Omit<BookingListItem, 'noShowRiskNote'>;
   slot: Awaited<ReturnType<typeof getSlotById>>;
+  // Public slug of the owning business — lets the customer manage page
+  // query the public availability endpoint when rescheduling, without
+  // exposing anything the slug in the booking URL didn't already.
+  businessSlug: string | null;
 }> {
   const booking = await BookingModel.findById(bookingId).lean();
 
@@ -940,6 +945,8 @@ export async function getBookingForCustomer(
     );
   }
 
+  const business = await getBusinessById(booking.businessId);
+
   return {
     booking: {
       id: String(booking._id),
@@ -959,6 +966,7 @@ export async function getBookingForCustomer(
       cancelledAt: booking.cancelledAt?.toISOString() ?? null,
     },
     slot,
+    businessSlug: business?.slug ?? null,
   };
 }
 

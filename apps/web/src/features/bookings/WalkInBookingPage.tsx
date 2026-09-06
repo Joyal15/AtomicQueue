@@ -1,19 +1,23 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { CheckCircle2 } from 'lucide-react'
 
 import type { Service, Slot } from '@queueless/shared-types'
 
 import { apiFetch, ApiRequestError } from '@/lib/api'
+import { formatDateTime } from '@/lib/format'
+import { PageHeader } from '@/components/layout/page-header'
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Select } from '@/components/ui/select'
+import { Spinner } from '@/components/ui/spinner'
 
 /** Not published to shared-types yet — see SchedulePage.tsx. */
 interface Provider {
@@ -36,9 +40,9 @@ function providerKey(providerId: string, providerType: string): string {
 }
 
 /**
- * Staff/owner creates a booking directly on a customer's behalf — no
- * hold step from the UI's point of view (POST /api/bookings does the
- * claim-hold-confirm sequence server-side in one call).
+ * Staff/owner books directly on a customer's behalf — no hold step from
+ * the UI's point of view (POST /api/bookings runs the claim → confirm
+ * sequence server-side in one call).
  */
 export function WalkInBookingPage() {
   const [services, setServices] = useState<Service[] | null>(null)
@@ -81,7 +85,10 @@ export function WalkInBookingPage() {
         if (active.length > 0) setServiceId(active[0].id)
         if (providersData.length > 0) {
           setProviderKeyValue(
-            providerKey(providersData[0].providerId, providersData[0].providerType),
+            providerKey(
+              providersData[0].providerId,
+              providersData[0].providerType,
+            ),
           )
         }
         setLoadError(null)
@@ -108,7 +115,12 @@ export function WalkInBookingPage() {
         const data = await apiFetch<Slot[]>(
           `/slots?status=available&providerId=${encodeURIComponent(selectedProvider.providerId)}&providerType=${selectedProvider.providerType}&serviceId=${encodeURIComponent(serviceId)}`,
         )
-        setSlots(data)
+        setSlots(
+          [...data].sort(
+            (a, b) =>
+              new Date(a.datetime).getTime() - new Date(b.datetime).getTime(),
+          ),
+        )
         setSlotsError(null)
       } catch (err) {
         setSlotsError(
@@ -141,18 +153,15 @@ export function WalkInBookingPage() {
           providerType: selectedProvider.providerType,
           serviceId,
           datetime,
-          customer: {
-            name: customerName,
-            contactType,
-            contact,
-          },
+          customer: { name: customerName, contactType, contact },
         }),
       })
       setCreated(result)
       setCustomerName('')
       setContact('')
-      // That slot is gone — drop it from the list rather than refetch.
-      setSlots((current) => current?.filter((s) => s.datetime !== datetime) ?? current)
+      setSlots(
+        (current) => current?.filter((s) => s.datetime !== datetime) ?? current,
+      )
       setDatetime('')
     } catch (err) {
       setFormError(
@@ -165,16 +174,21 @@ export function WalkInBookingPage() {
     }
   }
 
+  const ready =
+    services && services.length > 0 && providers && providers.length > 0
+
   return (
     <div className="space-y-6">
+      <PageHeader
+        title="Walk-in booking"
+        description="Confirms immediately — no hold, no email required."
+      />
+
       <Card>
         <CardHeader>
-          <CardTitle>Book for a walk-in customer</CardTitle>
-          <CardDescription>
-            Confirms immediately — no hold step, no email required.
-          </CardDescription>
+          <CardTitle>Book for a customer</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           {loadError && <Alert variant="destructive">{loadError}</Alert>}
 
           {services?.length === 0 && (
@@ -188,36 +202,34 @@ export function WalkInBookingPage() {
             </p>
           )}
 
-          {services && services.length > 0 && providers && providers.length > 0 && (
+          {ready && (
             <form className="space-y-4" onSubmit={handleSubmit}>
               {formError && <Alert variant="destructive">{formError}</Alert>}
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="walkin-service">Service</Label>
-                  <select
+                  <Select
                     id="walkin-service"
-                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
                     value={serviceId}
                     onChange={(e) => setServiceId(e.target.value)}
                   >
-                    {services.map((s) => (
+                    {services!.map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.name} ({s.durationMinutes} min)
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="walkin-provider">Provider</Label>
-                  <select
+                  <Select
                     id="walkin-provider"
-                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
                     value={providerKeyValue}
                     onChange={(e) => setProviderKeyValue(e.target.value)}
                   >
-                    {providers.map((p) => (
+                    {providers!.map((p) => (
                       <option
                         key={providerKey(p.providerId, p.providerType)}
                         value={providerKey(p.providerId, p.providerType)}
@@ -225,7 +237,7 @@ export function WalkInBookingPage() {
                         {p.name} ({p.providerType})
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </div>
               </div>
 
@@ -237,15 +249,14 @@ export function WalkInBookingPage() {
                 )}
                 {slots?.length === 0 && (
                   <p className="text-sm text-muted-foreground">
-                    No available times for this provider/service — generate
-                    or free up a slot on the Schedule page first.
+                    No open times for this provider/service — generate or free
+                    up a slot on the Schedule page first.
                   </p>
                 )}
                 {slots && slots.length > 0 && (
-                  <select
+                  <Select
                     id="walkin-time"
                     required
-                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
                     value={datetime}
                     onChange={(e) => setDatetime(e.target.value)}
                   >
@@ -254,10 +265,10 @@ export function WalkInBookingPage() {
                     </option>
                     {slots.map((slot) => (
                       <option key={slot.id} value={slot.datetime}>
-                        {new Date(slot.datetime).toLocaleString()}
+                        {formatDateTime(slot.datetime)}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 )}
               </div>
 
@@ -274,9 +285,8 @@ export function WalkInBookingPage() {
 
                 <div className="space-y-2">
                   <Label htmlFor="walkin-contact-type">Contact type</Label>
-                  <select
+                  <Select
                     id="walkin-contact-type"
-                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
                     value={contactType}
                     onChange={(e) =>
                       setContactType(e.target.value as 'email' | 'phone')
@@ -284,7 +294,7 @@ export function WalkInBookingPage() {
                   >
                     <option value="email">Email</option>
                     <option value="phone">Phone</option>
-                  </select>
+                  </Select>
                 </div>
 
                 <div className="space-y-2">
@@ -302,18 +312,23 @@ export function WalkInBookingPage() {
               </div>
 
               <Button type="submit" disabled={submitting || !datetime}>
-                {submitting ? 'Booking…' : 'Confirm booking'}
+                {submitting && <Spinner />}
+                Confirm booking
               </Button>
             </form>
           )}
 
           {created && (
-            <Alert className="mt-4">
-              Booked. No email delivery yet, so if this customer wants
-              self-service manage access later, share this access token
-              manually:
-              <br />
-              <code className="mt-1 block break-all rounded bg-secondary px-2 py-1 text-xs">
+            <Alert variant="success">
+              <p className="flex items-center gap-2 font-medium">
+                <CheckCircle2 className="size-4 shrink-0" />
+                Booked.
+              </p>
+              <p className="mt-1">
+                No email delivery yet — if this customer wants self-service
+                manage access later, share this token:
+              </p>
+              <code className="mt-1.5 block break-all rounded bg-card px-2 py-1 text-xs text-foreground">
                 {created.accessToken}
               </code>
             </Alert>
