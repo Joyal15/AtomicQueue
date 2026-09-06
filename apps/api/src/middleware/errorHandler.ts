@@ -19,7 +19,20 @@ export const errorHandler: ErrorRequestHandler = (
     return next(err);
   }
 
-  logger.error(err, "Unhandled application error");
+  // An AppError with a 4xx status is an expected client-input outcome
+  // (a lost booking race, bad credentials, a missing record) — not a
+  // server fault. Logging every one of those at `error` with a full
+  // stack trace floods production error tracking with normal business
+  // outcomes. Log them at `warn` without a stack; reserve `error` (with
+  // the stack) for 5xx AppErrors and genuinely unhandled throws.
+  if (err instanceof AppError && err.statusCode < 500) {
+    logger.warn(
+      { code: err.code, statusCode: err.statusCode },
+      err.message,
+    );
+  } else {
+    logger.error(err, "Unhandled application error");
+  }
 
   if (err instanceof AppError) {
     res.status(err.statusCode).json({
