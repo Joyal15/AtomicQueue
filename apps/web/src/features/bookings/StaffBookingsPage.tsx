@@ -14,13 +14,13 @@ import { cn } from '@/lib/utils'
 import {
   bookingStatusBadge,
   formatDateTime,
+  formatTime,
   groupByDay,
 } from '@/lib/format'
 import { PageHeader } from '@/components/layout/page-header'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
 import { Dialog } from '@/components/ui/dialog'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Label } from '@/components/ui/label'
@@ -270,47 +270,89 @@ function Section({
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">{emptyLabel}</p>
       ) : (
-        <div className="space-y-4">
-          {groupByDay(
-            rows.map((r) => ({
-              ...r,
-              datetime: r.slot?.datetime ?? r.booking.createdAt,
-            })),
-          ).map((group) => (
-            <div key={group.key}>
-              <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {group.label}
-              </p>
-              <Card>
-                <CardContent className="divide-y divide-border p-0">
-                  {group.items.map((row) => (
-                    <BookingRow
-                      key={row.booking.id}
-                      row={row}
-                      expanded={expandedId === row.booking.id}
-                      onToggle={() =>
-                        onToggle(
-                          expandedId === row.booking.id
-                            ? null
-                            : row.booking.id,
-                        )
-                      }
-                      onReschedule={() => onReschedule(row)}
-                      onCancel={() => onCancel(row)}
-                      onOutcome={(status) => onOutcome(row, status)}
-                    />
-                  ))}
-                </CardContent>
-              </Card>
-            </div>
-          ))}
+        <div className="overflow-x-auto rounded-md border border-border">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <th className="py-2.5 pl-4">Time</th>
+                <th className="py-2.5 pl-3">Customer</th>
+                <th className="hidden py-2.5 pl-3 sm:table-cell">Service</th>
+                <th className="hidden py-2.5 pl-3 md:table-cell">Provider</th>
+                <th className="py-2.5 pl-3">Status</th>
+                <th className="w-9 py-2.5 pr-4" />
+              </tr>
+            </thead>
+            <tbody>
+              {groupByDay(
+                rows.map((r) => ({
+                  ...r,
+                  datetime: r.slot?.datetime ?? r.booking.createdAt,
+                })),
+              ).map((group) => (
+                <DayGroup
+                  key={group.key}
+                  label={group.label}
+                  rows={group.items}
+                  expandedId={expandedId}
+                  onToggle={onToggle}
+                  onReschedule={onReschedule}
+                  onCancel={onCancel}
+                  onOutcome={onOutcome}
+                />
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </section>
   )
 }
 
-function BookingRow({
+function DayGroup({
+  label,
+  rows,
+  expandedId,
+  onToggle,
+  onReschedule,
+  onCancel,
+  onOutcome,
+}: {
+  label: string
+  rows: Row[]
+  expandedId: string | null
+  onToggle: (id: string | null) => void
+  onReschedule: (row: Row) => void
+  onCancel: (row: Row) => void
+  onOutcome: (row: Row, status: 'completed' | 'no-show') => void
+}) {
+  return (
+    <>
+      <tr className="bg-secondary/40">
+        <td
+          colSpan={6}
+          className="px-4 py-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground"
+        >
+          {label}
+        </td>
+      </tr>
+      {rows.map((row) => (
+        <BookingTableRow
+          key={row.booking.id}
+          row={row}
+          expanded={expandedId === row.booking.id}
+          onToggle={() =>
+            onToggle(expandedId === row.booking.id ? null : row.booking.id)
+          }
+          onReschedule={() => onReschedule(row)}
+          onCancel={() => onCancel(row)}
+          onOutcome={(status) => onOutcome(row, status)}
+        />
+      ))}
+    </>
+  )
+}
+
+function BookingTableRow({
   row,
   expanded,
   onToggle,
@@ -339,114 +381,141 @@ function BookingRow({
   }
 
   return (
-    <div>
-      <button
-        type="button"
+    <>
+      <tr
+        className={cn(
+          'cursor-pointer border-b border-border/70 outline-none transition-colors last:border-b-0 hover:bg-secondary/40 focus-visible:bg-secondary/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring',
+          expanded && 'bg-secondary/40',
+        )}
         onClick={onToggle}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-secondary/40"
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onToggle()
+          }
+        }}
+        tabIndex={0}
+        role="button"
+        aria-expanded={expanded}
       >
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-medium">
-              {slot ? formatDateTime(slot.datetime) : 'Time unknown'}
-            </span>
+        <td className="whitespace-nowrap py-2.5 pl-4 pr-3 font-medium">
+          {slot ? formatTime(slot.datetime) : 'Time unknown'}
+        </td>
+        <td className="max-w-[12rem] truncate py-2.5 pl-3 pr-3 text-muted-foreground">
+          {booking.customer.name}
+        </td>
+        <td className="hidden max-w-[10rem] truncate py-2.5 pl-3 pr-3 text-muted-foreground sm:table-cell">
+          {serviceName ?? '—'}
+        </td>
+        <td className="hidden max-w-[10rem] truncate py-2.5 pl-3 pr-3 text-muted-foreground md:table-cell">
+          {provider?.name ?? '—'}
+        </td>
+        <td className="py-2.5 pl-3 pr-3">
+          <div className="flex flex-wrap items-center gap-1.5">
             <Badge variant={bookingStatusBadge[booking.status]}>
               {booking.status}
             </Badge>
-            {booking.createdBy && <Badge variant="secondary">Walk-in</Badge>}
+            {booking.createdBy && (
+              <Badge variant="secondary" className="hidden lg:inline-flex">
+                Walk-in
+              </Badge>
+            )}
             {booking.noShowRiskNote && (
-              <Badge variant="warning">
-                <Sparkles className="size-3" /> Risk note
+              <Badge variant="warning" title="Has an AI no-show risk note">
+                <Sparkles className="size-3" />
               </Badge>
             )}
           </div>
-          <p className="mt-0.5 truncate text-sm text-muted-foreground">
-            {serviceName ? `${serviceName} · ` : ''}
-            {provider?.name ?? 'Provider'} · {booking.customer.name}
-          </p>
-        </div>
-        <ChevronDown
-          className={cn(
-            'size-4 shrink-0 text-muted-foreground transition-transform',
-            expanded && 'rotate-180',
-          )}
-        />
-      </button>
+        </td>
+        <td className="py-2.5 pr-4 text-right">
+          <ChevronDown
+            className={cn(
+              'ml-auto size-4 shrink-0 text-muted-foreground transition-transform',
+              expanded && 'rotate-180',
+            )}
+          />
+        </td>
+      </tr>
 
       {expanded && (
-        <div className="space-y-4 border-t border-border bg-secondary/20 px-4 py-4">
-          <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-            <Detail label="Customer" value={booking.customer.name} />
-            <Detail
-              label={booking.customer.contactType === 'email' ? 'Email' : 'Phone'}
-              value={booking.customer.contact}
-            />
-            <Detail label="Service" value={serviceName ?? '—'} />
-            <Detail
-              label="Provider"
-              value={
-                provider
-                  ? `${provider.name} (${provider.providerType})`
-                  : '—'
-              }
-            />
-            <Detail
-              label="Booked"
-              value={formatDateTime(booking.createdAt)}
-            />
-            <Detail
-              label="Source"
-              value={booking.createdBy ? 'Staff walk-in' : 'Customer self-service'}
-            />
-          </dl>
+        <tr className="border-b border-border/70 bg-secondary/20 last:border-b-0">
+          <td colSpan={6} className="px-4 py-4">
+            <div className="space-y-4">
+              <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
+                <Detail label="Customer" value={booking.customer.name} />
+                <Detail
+                  label={
+                    booking.customer.contactType === 'email' ? 'Email' : 'Phone'
+                  }
+                  value={booking.customer.contact}
+                />
+                <Detail label="Service" value={serviceName ?? '—'} />
+                <Detail
+                  label="Provider"
+                  value={
+                    provider
+                      ? `${provider.name} (${provider.providerType})`
+                      : '—'
+                  }
+                />
+                <Detail label="Booked" value={formatDateTime(booking.createdAt)} />
+                <Detail
+                  label="Source"
+                  value={
+                    booking.createdBy ? 'Staff walk-in' : 'Customer self-service'
+                  }
+                />
+              </dl>
 
-          {booking.noShowRiskNote && (
-            <Alert variant="warning">
-              <span className="flex items-start gap-2">
-                <Sparkles className="mt-0.5 size-4 shrink-0" />
-                <span>
-                  <span className="font-medium">No-show risk: </span>
-                  {booking.noShowRiskNote}
-                </span>
-              </span>
-            </Alert>
-          )}
+              {booking.noShowRiskNote && (
+                <Alert variant="warning">
+                  <span className="flex items-start gap-2">
+                    <Sparkles className="mt-0.5 size-4 shrink-0" />
+                    <span>
+                      <span className="font-medium">No-show risk: </span>
+                      {booking.noShowRiskNote}
+                    </span>
+                  </span>
+                </Alert>
+              )}
 
-          {canAct ? (
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" onClick={onReschedule}>
-                Reschedule
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={busy !== null}
-                onClick={() => handleOutcome('completed')}
-              >
-                {busy === 'completed' && <Spinner />}
-                Mark completed
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={busy !== null}
-                onClick={() => handleOutcome('no-show')}
-              >
-                {busy === 'no-show' && <Spinner />}
-                Mark no-show
-              </Button>
-              <Button size="sm" variant="destructive" onClick={onCancel}>
-                Cancel booking
-              </Button>
+              {canAct ? (
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" onClick={onReschedule}>
+                    Reschedule
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy !== null}
+                    onClick={() => handleOutcome('completed')}
+                  >
+                    {busy === 'completed' && <Spinner />}
+                    Mark completed
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy !== null}
+                    onClick={() => handleOutcome('no-show')}
+                  >
+                    {busy === 'no-show' && <Spinner />}
+                    Mark no-show
+                  </Button>
+                  <Button size="sm" variant="destructive" onClick={onCancel}>
+                    Cancel booking
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  This booking is {booking.status} — no further actions.
+                </p>
+              )}
             </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              This booking is {booking.status} — no further actions.
-            </p>
-          )}
-        </div>
+          </td>
+        </tr>
       )}
-    </div>
+    </>
   )
 }
 

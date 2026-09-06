@@ -4,49 +4,87 @@
 
 /*
  * Design tokens the shadcn-style components in components/ui reference
- * (bg-card, border-input, ring-ring, etc.). Light theme only — nothing
- * in this app switches themes, so there's no .dark block.
+ * (bg-card, border-input, ring-ring, etc.).
  *
- * Palette: indigo primary on a cool off-white ground, with dedicated
- * success/warning roles for booking-status UI.
+ * Palette: a deep-slate neutral scale (text, borders, surfaces) with a
+ * single warm amber accent doing all the work for actions and
+ * highlights — one brand color, not one-per-theme. `.dark` (toggled by
+ * lib/theme.ts, applied pre-paint by the inline script in index.html)
+ * carries the dark variant of every token below it.
  */
 @layer base {
   :root {
-    --background: 220 33% 98%;
-    --foreground: 222 47% 11%;
+    --background: 40 25% 97%;
+    --foreground: 222 25% 12%;
 
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 222 25% 12%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
+    --popover-foreground: 222 25% 12%;
 
-    --primary: 243 75% 59%;
-    --primary-foreground: 0 0% 100%;
+    --primary: 38 92% 50%;
+    --primary-foreground: 26 45% 12%;
 
-    --secondary: 220 14% 96%;
-    --secondary-foreground: 222 47% 11%;
+    --secondary: 220 15% 95%;
+    --secondary-foreground: 222 25% 15%;
 
-    --muted: 220 14% 96%;
-    --muted-foreground: 220 9% 46%;
+    --muted: 220 15% 95%;
+    --muted-foreground: 222 10% 45%;
 
-    --accent: 226 100% 97%;
-    --accent-foreground: 243 75% 52%;
+    --accent: 38 92% 94%;
+    --accent-foreground: 32 80% 32%;
 
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
 
-    --success: 142 66% 40%;
+    --success: 142 66% 38%;
     --success-foreground: 0 0% 100%;
 
-    --warning: 35 92% 45%;
+    --warning: 22 90% 46%;
     --warning-foreground: 0 0% 100%;
 
-    --border: 220 13% 91%;
-    --input: 220 13% 88%;
-    --ring: 243 75% 59%;
+    --border: 220 15% 89%;
+    --input: 220 15% 84%;
+    --ring: 38 92% 50%;
 
     --radius: 0.65rem;
+  }
+
+  .dark {
+    --background: 222 22% 8%;
+    --foreground: 40 20% 92%;
+
+    --card: 222 20% 11%;
+    --card-foreground: 40 20% 92%;
+
+    --popover: 222 20% 11%;
+    --popover-foreground: 40 20% 92%;
+
+    --primary: 38 92% 55%;
+    --primary-foreground: 26 45% 10%;
+
+    --secondary: 222 16% 16%;
+    --secondary-foreground: 40 15% 90%;
+
+    --muted: 222 16% 16%;
+    --muted-foreground: 220 10% 62%;
+
+    --accent: 38 45% 18%;
+    --accent-foreground: 38 92% 68%;
+
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 55% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 22 85% 55%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 222 16% 19%;
+    --input: 222 16% 24%;
+    --ring: 38 92% 55%;
   }
 }
 
@@ -92,11 +130,16 @@ a {
 }
 
 @layer utilities {
-  /* Subtle indigo wash used behind the marketing hero and auth panels. */
+  /*
+   * Backdrop for the marketing hero, auth shell and public booking page:
+   * a flat fine dot grid — reads as "structured product", not a
+   * marketing gradient. No color wash; the dots alone are enough
+   * texture against the flat background.
+   */
   .bg-hero-grid {
     background-color: hsl(var(--background));
-    background-image:
-      radial-gradient(60rem 40rem at 100% -10%, hsl(var(--primary) / 0.10), transparent 60%),
-      radial-gradient(50rem 30rem at -10% 10%, hsl(199 89% 60% / 0.10), transparent 55%);
+    background-image: radial-gradient(hsl(var(--foreground) / 0.07) 1px, transparent 1px);
+    background-size: 22px 22px;
+    background-position: -11px -11px;
   }
 }

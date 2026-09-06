@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Check } from 'lucide-react'
 
 import { Wordmark } from '@/components/brand'
+import { ThemeToggle } from '@/components/theme-toggle'
 
 const points = [
   'Atomic holds — no double-bookings under load',
@@ -27,9 +28,9 @@ export function AuthShell({
 }) {
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
-      <div className="relative hidden flex-col justify-between bg-primary p-12 text-primary-foreground lg:flex">
+      <div className="relative hidden flex-col justify-between bg-[hsl(222_25%_12%)] p-12 text-white lg:flex">
         <Link to="/" className="inline-flex">
-          <Wordmark className="text-primary-foreground [&_span]:text-primary-foreground" />
+          <Wordmark className="text-white" />
         </Link>
         <div>
           <p className="text-2xl font-semibold leading-snug">
@@ -37,8 +38,8 @@ export function AuthShell({
           </p>
           <ul className="mt-8 space-y-3">
             {points.map((point) => (
-              <li key={point} className="flex items-start gap-3 text-sm">
-                <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-primary-foreground/15">
+              <li key={point} className="flex items-start gap-3 text-sm text-white/90">
+                <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/20 text-primary">
                   <Check className="size-3" />
                 </span>
                 {point}
@@ -46,12 +47,11 @@ export function AuthShell({
             ))}
           </ul>
         </div>
-        <p className="text-xs text-primary-foreground/70">
-          QueueLess++ — demo project
-        </p>
+        <p className="text-xs text-white/50">AtomicQueue — demo project</p>
       </div>
 
-      <div className="flex items-center justify-center bg-hero-grid px-4 py-12 lg:bg-none lg:bg-background">
+      <div className="relative flex items-center justify-center bg-hero-grid px-4 py-12 lg:bg-none lg:bg-background">
+        <ThemeToggle className="absolute right-4 top-4" />
         <div className="w-full max-w-sm">
           <Link to="/" className="mb-8 inline-flex lg:hidden">
             <Wordmark />

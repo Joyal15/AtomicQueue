@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { CalendarOff, CheckCircle2, Clock } from 'lucide-react'
+import { CalendarDays, CalendarOff, CheckCircle2, Clock } from 'lucide-react'
 
 import { apiFetch, ApiRequestError } from '@/lib/api'
 import { useSlotUpdates } from '@/lib/realtime'
@@ -8,15 +8,11 @@ import { getBookingSessionId } from '@/lib/session-id'
 import { formatPrice, formatTime, groupByDay } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Wordmark } from '@/components/brand'
+import { ThemeToggle } from '@/components/theme-toggle'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Dialog } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -91,6 +87,7 @@ export function PublicBookingPage() {
 
   const [booking, setBooking] = useState<AvailabilityBucket | null>(null)
   const [waitlistFor, setWaitlistFor] = useState<AvailabilityBucket | null>(null)
+  const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null)
 
   const selectedProvider = useMemo(
     () =>
@@ -201,11 +198,19 @@ export function PublicBookingPage() {
   }
 
   const days = buckets ? groupByDay(buckets) : []
+  const activeDayKey =
+    selectedDayKey && days.some((d) => d.key === selectedDayKey)
+      ? selectedDayKey
+      : (days[0]?.key ?? null)
+  const activeDay = days.find((d) => d.key === activeDayKey) ?? null
 
   return (
     <div className="min-h-screen bg-hero-grid">
       <div className="mx-auto max-w-3xl px-6 py-12">
-        <Wordmark />
+        <div className="flex items-center justify-between">
+          <Wordmark />
+          <ThemeToggle />
+        </div>
 
         <div className="mt-8">
           {!business && !businessError ? (
@@ -234,125 +239,195 @@ export function PublicBookingPage() {
         )}
 
         {services && services.length > 0 && (
-          <div className="mt-6 space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Choose a service</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="public-service">Service</Label>
-                    <Select
-                      id="public-service"
-                      value={serviceId}
-                      onChange={(e) => setServiceId(e.target.value)}
-                    >
-                      {services.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.name} · {s.durationMinutes} min ·{' '}
-                          {formatPrice(s.price)}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="public-provider">Provider</Label>
-                    <Select
-                      id="public-provider"
-                      value={providerKeyValue}
-                      onChange={(e) => setProviderKeyValue(e.target.value)}
-                    >
-                      <option value="">Any provider</option>
-                      {providers?.map((p) => (
-                        <option
-                          key={providerKey(p.providerId, p.providerType)}
-                          value={providerKey(p.providerId, p.providerType)}
-                        >
-                          {p.name}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
+          <div className="mt-6">
+            <Card className="overflow-hidden">
+              <div className="grid gap-4 border-b border-border px-6 py-5 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="public-service">Service</Label>
+                  <Select
+                    id="public-service"
+                    value={serviceId}
+                    onChange={(e) => {
+                      setServiceId(e.target.value)
+                      setSelectedDayKey(null)
+                    }}
+                  >
+                    {services.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} · {s.durationMinutes} min ·{' '}
+                        {formatPrice(s.price)}
+                      </option>
+                    ))}
+                  </Select>
                 </div>
-              </CardContent>
-            </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Available times</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-5">
+                <div className="space-y-2">
+                  <Label htmlFor="public-provider">Provider</Label>
+                  <Select
+                    id="public-provider"
+                    value={providerKeyValue}
+                    onChange={(e) => {
+                      setProviderKeyValue(e.target.value)
+                      setSelectedDayKey(null)
+                    }}
+                  >
+                    <option value="">Any provider</option>
+                    {providers?.map((p) => (
+                      <option
+                        key={providerKey(p.providerId, p.providerType)}
+                        value={providerKey(p.providerId, p.providerType)}
+                      >
+                        {p.name}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              </div>
+
+              <CardContent className="space-y-5 pt-5">
                 {bucketsError && (
                   <Alert variant="destructive">{bucketsError}</Alert>
                 )}
 
                 {buckets === null && !bucketsError && (
-                  <div className="space-y-3">
-                    <Skeleton className="h-4 w-32" />
-                    <div className="flex flex-wrap gap-2">
-                      {Array.from({ length: 6 }).map((_, i) => (
-                        <Skeleton key={i} className="h-9 w-24" />
+                  <div className="space-y-4">
+                    <div className="flex gap-2">
+                      {Array.from({ length: 4 }).map((_, i) => (
+                        <Skeleton key={i} className="h-14 w-16 shrink-0" />
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                      {Array.from({ length: 8 }).map((_, i) => (
+                        <Skeleton key={i} className="h-10 w-full" />
                       ))}
                     </div>
                   </div>
                 )}
 
                 {buckets?.length === 0 && (
-                  <p className="text-sm text-muted-foreground">
-                    No upcoming times for this service right now.
-                  </p>
+                  <div className="flex flex-col items-center gap-2 py-10 text-center">
+                    <CalendarDays className="size-6 text-muted-foreground" />
+                    <p className="text-sm text-muted-foreground">
+                      No upcoming times for this service right now.
+                    </p>
+                  </div>
                 )}
 
-                {days.map((day) => (
-                  <div key={day.key}>
-                    <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      {day.label}
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {day.items.map((bucket) => {
-                        const full = bucket.remaining === 0
-                        const multi = bucket.total > 1
+                {days.length > 0 && (
+                  <>
+                    <div
+                      role="tablist"
+                      aria-label="Choose a day"
+                      className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1"
+                    >
+                      {days.map((day, i) => {
+                        const isActive = day.key === activeDayKey
+                        const [weekday, ...rest] = day.label.split(', ')
                         return (
                           <button
-                            key={bucketKey(bucket)}
+                            key={day.key}
                             type="button"
-                            onClick={() =>
-                              full
-                                ? setWaitlistFor(bucket)
-                                : setBooking(bucket)
-                            }
+                            role="tab"
+                            aria-selected={isActive}
+                            tabIndex={isActive ? 0 : -1}
+                            onClick={() => setSelectedDayKey(day.key)}
+                            onKeyDown={(e) => {
+                              if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
+                                return
+                              }
+                              e.preventDefault()
+                              const nextIndex =
+                                e.key === 'ArrowLeft'
+                                  ? Math.max(0, i - 1)
+                                  : e.key === 'ArrowRight'
+                                    ? Math.min(days.length - 1, i + 1)
+                                    : e.key === 'Home'
+                                      ? 0
+                                      : days.length - 1
+                              const nextDay = days[nextIndex]
+                              setSelectedDayKey(nextDay.key)
+                              const tabs =
+                                e.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
+                                  '[role="tab"]',
+                                )
+                              tabs?.[nextIndex]?.focus()
+                            }}
                             className={cn(
-                              'inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium transition-colors',
-                              full
-                                ? 'border-border bg-secondary/50 text-muted-foreground hover:border-primary/30'
-                                : 'border-input bg-card hover:border-primary hover:bg-accent',
+                              'flex shrink-0 flex-col items-center gap-0.5 rounded-md border px-4 py-2 text-sm transition-colors',
+                              isActive
+                                ? 'border-primary bg-primary text-primary-foreground shadow-sm'
+                                : 'border-border bg-card text-foreground hover:border-primary/40 hover:bg-accent',
                             )}
                           >
-                            {formatTime(bucket.datetime)}
-                            {multi && (
-                              <Badge
-                                variant={full ? 'destructive' : 'success'}
-                                className="px-1.5 py-0"
-                              >
-                                {bucket.remaining}/{bucket.total}
-                              </Badge>
-                            )}
-                            {!multi && full && (
-                              <Badge
-                                variant="destructive"
-                                className="px-1.5 py-0"
-                              >
-                                full
-                              </Badge>
-                            )}
+                            <span
+                              className={cn(
+                                'text-[0.6875rem] font-medium uppercase tracking-wide',
+                                isActive
+                                  ? 'text-primary-foreground/80'
+                                  : 'text-muted-foreground',
+                              )}
+                            >
+                              {weekday}
+                            </span>
+                            <span className="font-semibold leading-none">
+                              {rest.join(', ') || day.label}
+                            </span>
                           </button>
                         )
                       })}
                     </div>
-                  </div>
-                ))}
+
+                    {activeDay && (
+                      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                        {activeDay.items.map((bucket) => {
+                          const full = bucket.remaining === 0
+                          const multi = bucket.total > 1
+                          // Only surface a capacity badge when it's actually
+                          // decision-relevant — full (can't book) or down to
+                          // the last couple of spots. Plenty of room left is
+                          // the default, unremarkable case and doesn't need
+                          // a badge cluttering every single time button.
+                          const scarce = multi && !full && bucket.remaining <= 2
+                          return (
+                            <button
+                              key={bucketKey(bucket)}
+                              type="button"
+                              onClick={() =>
+                                full
+                                  ? setWaitlistFor(bucket)
+                                  : setBooking(bucket)
+                              }
+                              className={cn(
+                                'flex flex-col items-center gap-1 rounded-md border px-2 py-2.5 text-sm font-medium transition-all',
+                                full
+                                  ? 'border-border bg-secondary/40 text-muted-foreground hover:border-primary/30'
+                                  : 'border-input bg-card hover:-translate-y-0.5 hover:border-primary hover:bg-accent hover:shadow-sm',
+                              )}
+                            >
+                              {formatTime(bucket.datetime)}
+                              {full && (
+                                <Badge
+                                  variant="destructive"
+                                  className="px-1.5 py-0 text-[0.6875rem]"
+                                >
+                                  full
+                                </Badge>
+                              )}
+                              {scarce && (
+                                <Badge
+                                  variant="warning"
+                                  className="px-1.5 py-0 text-[0.6875rem]"
+                                >
+                                  {bucket.remaining} left
+                                </Badge>
+                              )}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </>
+                )}
               </CardContent>
             </Card>
           </div>

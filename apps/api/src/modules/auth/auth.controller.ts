@@ -81,6 +81,7 @@ export const loginController = asyncHandler(async (req, res) => {
   res.status(200).json({
     data: {
       user: result.user,
+      business: result.business,
     },
   });
 });

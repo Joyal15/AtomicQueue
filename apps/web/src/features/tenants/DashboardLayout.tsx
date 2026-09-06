@@ -17,63 +17,107 @@ import { useAuth } from '@/lib/use-auth'
 import { cn } from '@/lib/utils'
 import { Wordmark } from '@/components/brand'
 import { Button } from '@/components/ui/button'
+import { ThemeToggle } from '@/components/theme-toggle'
 
-const navItems: { to: string; label: string; icon: LucideIcon; end: boolean }[] =
-  [
-    { to: '/dashboard', label: 'Overview', icon: LayoutDashboard, end: true },
-    { to: '/dashboard/services', label: 'Services', icon: Scissors, end: false },
-    { to: '/dashboard/staff', label: 'Staff', icon: Users, end: false },
-    {
-      to: '/dashboard/schedule',
-      label: 'Schedule',
-      icon: CalendarRange,
-      end: false,
-    },
-    {
-      to: '/dashboard/walk-in',
-      label: 'Walk-in booking',
-      icon: UserPlus,
-      end: false,
-    },
-    {
-      to: '/dashboard/bookings',
-      label: 'Bookings',
-      icon: ClipboardList,
-      end: false,
-    },
-    {
-      to: '/dashboard/waitlist',
-      label: 'Waitlist',
-      icon: ListChecks,
-      end: false,
-    },
-  ]
+interface NavItem {
+  to: string
+  label: string
+  icon: LucideIcon
+  end: boolean
+}
+
+// Grouped by what they're for, not just dumped in one flat list — makes
+// the sidebar scannable at a glance instead of reading as seven equally
+// weighted items.
+const navGroups: { label: string | null; items: NavItem[] }[] = [
+  {
+    label: null,
+    items: [
+      { to: '/dashboard', label: 'Overview', icon: LayoutDashboard, end: true },
+    ],
+  },
+  {
+    label: 'Manage',
+    items: [
+      { to: '/dashboard/services', label: 'Services', icon: Scissors, end: false },
+      { to: '/dashboard/staff', label: 'Staff', icon: Users, end: false },
+    ],
+  },
+  {
+    label: 'Bookings',
+    items: [
+      {
+        to: '/dashboard/schedule',
+        label: 'Schedule',
+        icon: CalendarRange,
+        end: false,
+      },
+      {
+        to: '/dashboard/walk-in',
+        label: 'Walk-in booking',
+        icon: UserPlus,
+        end: false,
+      },
+      {
+        to: '/dashboard/bookings',
+        label: 'Bookings',
+        icon: ClipboardList,
+        end: false,
+      },
+      {
+        to: '/dashboard/waitlist',
+        label: 'Waitlist',
+        icon: ListChecks,
+        end: false,
+      },
+    ],
+  },
+]
 
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   return (
-    <nav className="space-y-1">
-      {navItems.map((item) => {
-        const Icon = item.icon
-        return (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.end}
-            onClick={onNavigate}
-            className={({ isActive }) =>
-              cn(
-                'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                isActive
-                  ? 'bg-accent text-accent-foreground'
-                  : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
-              )
-            }
-          >
-            <Icon className="size-4 shrink-0" />
-            {item.label}
-          </NavLink>
-        )
-      })}
+    <nav className="space-y-4">
+      {navGroups.map((group, i) => (
+        <div key={group.label ?? `group-${i}`} className="space-y-0.5">
+          {group.label && (
+            <p className="px-3 pb-1 text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground/70">
+              {group.label}
+            </p>
+          )}
+          {group.items.map((item) => {
+            const Icon = item.icon
+            return (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.end}
+                onClick={onNavigate}
+                className={({ isActive }) =>
+                  cn(
+                    'group relative flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                    isActive
+                      ? 'bg-accent text-accent-foreground'
+                      : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
+                  )
+                }
+              >
+                {({ isActive }) => (
+                  <>
+                    <span
+                      className={cn(
+                        'absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary transition-opacity',
+                        isActive ? 'opacity-100' : 'opacity-0',
+                      )}
+                    />
+                    <Icon className="size-4 shrink-0" />
+                    {item.label}
+                  </>
+                )}
+              </NavLink>
+            )
+          })}
+        </div>
+      ))}
     </nav>
   )
 }
@@ -110,9 +154,12 @@ export function DashboardLayout() {
       </div>
       <div className="border-t border-border p-3">
         {user && (
-          <div className="mb-2 px-2 text-xs text-muted-foreground">
-            <span className="font-medium text-foreground">{user.name}</span>
-            <span className="capitalize"> · {user.role}</span>
+          <div className="mb-2 flex items-center justify-between gap-2 px-2 text-xs text-muted-foreground">
+            <span className="truncate">
+              <span className="font-medium text-foreground">{user.name}</span>
+              <span className="capitalize"> · {user.role}</span>
+            </span>
+            <ThemeToggle className="size-7 shrink-0" />
           </div>
         )}
         <Button
@@ -137,14 +184,17 @@ export function DashboardLayout() {
       {/* Mobile top bar */}
       <header className="sticky top-0 z-20 flex items-center justify-between border-b border-border bg-card/95 px-4 py-3 backdrop-blur lg:hidden">
         <Wordmark />
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Open menu"
-          onClick={() => setMobileOpen(true)}
-        >
-          <Menu className="size-5" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <ThemeToggle />
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Open menu"
+            onClick={() => setMobileOpen(true)}
+          >
+            <Menu className="size-5" />
+          </Button>
+        </div>
       </header>
 
       {/* Mobile drawer */}

@@ -26,7 +26,7 @@ export function Wordmark({
     <span className={cn('inline-flex items-center gap-2', className)}>
       {showGlyph && <LogoGlyph className="size-7" />}
       <span className="text-[0.95rem] font-semibold tracking-tight">
-        QueueLess<span className="text-primary">++</span>
+        Atomic<span className="text-primary">Queue</span>
       </span>
     </span>
   )

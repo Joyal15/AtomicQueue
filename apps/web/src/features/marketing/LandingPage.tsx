@@ -11,6 +11,7 @@ import {
 import { useAuth } from '@/lib/use-auth'
 import { Wordmark } from '@/components/brand'
 import { Button } from '@/components/ui/button'
+import { ThemeToggle } from '@/components/theme-toggle'
 
 const features = [
   {
@@ -56,6 +57,7 @@ export function LandingPage() {
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
         <Wordmark />
         <nav className="flex items-center gap-2">
+          <ThemeToggle />
           {status === 'authenticated' ? (
             <Button asChild size="sm">
               <Link to="/dashboard">Dashboard</Link>
@@ -74,17 +76,17 @@ export function LandingPage() {
       </header>
 
       <main>
-        <section className="mx-auto max-w-3xl px-6 pb-16 pt-16 text-center sm:pt-24">
+        <section className="mx-auto max-w-3xl px-6 pb-14 pt-16 text-center sm:pt-24">
           <span className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground shadow-xs">
             <span className="size-1.5 rounded-full bg-success" />
             Concurrency-safe booking engine
           </span>
-          <h1 className="mt-6 text-4xl font-bold tracking-tight text-foreground sm:text-5xl">
+          <h1 className="mt-6 text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
             Appointment booking that never
-            <span className="text-primary"> double-books</span>.
+            <span className="whitespace-nowrap text-primary"> double-books</span>.
           </h1>
           <p className="mx-auto mt-5 max-w-2xl text-lg text-muted-foreground">
-            QueueLess++ gives small businesses a real-time booking page with
+            AtomicQueue gives small businesses a real-time booking page with
             atomic holds, an automatic waitlist, and a clean reschedule /
             cancel flow — built on the same conditional-write discipline a
             payments system would use.
@@ -99,24 +101,33 @@ export function LandingPage() {
           </div>
         </section>
 
-        <section className="mx-auto max-w-6xl px-6 pb-24">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {features.map(({ icon: Icon, title, body }) => (
-              <div
-                key={title}
-                className="rounded-lg border border-border/70 bg-card p-5 shadow-sm"
-              >
-                <div className="flex size-9 items-center justify-center rounded-lg bg-accent text-accent-foreground">
-                  <Icon className="size-5" />
+        <section className="mx-auto max-w-5xl px-6 pb-24">
+          <div className="grid gap-8 border-t border-border pt-14 md:grid-cols-[16rem_1fr] md:gap-12">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                What's different
+              </p>
+              <h2 className="mt-3 text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+                Built with the discipline a payments system would use.
+              </h2>
+            </div>
+
+            <dl className="divide-y divide-border">
+              {features.map(({ icon: Icon, title, body }) => (
+                <div
+                  key={title}
+                  className="grid gap-1.5 py-5 first:pt-0 sm:grid-cols-[11rem_1fr] sm:gap-6"
+                >
+                  <dt className="flex items-start gap-2.5 text-sm font-semibold text-foreground">
+                    <Icon className="mt-0.5 size-4 shrink-0 text-primary" />
+                    <span>{title}</span>
+                  </dt>
+                  <dd className="text-sm leading-relaxed text-muted-foreground">
+                    {body}
+                  </dd>
                 </div>
-                <h3 className="mt-3.5 text-sm font-semibold text-foreground">
-                  {title}
-                </h3>
-                <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-                  {body}
-                </p>
-              </div>
-            ))}
+              ))}
+            </dl>
           </div>
         </section>
       </main>

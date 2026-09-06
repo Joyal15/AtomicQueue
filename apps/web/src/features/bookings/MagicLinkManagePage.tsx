@@ -5,6 +5,7 @@ import { CalendarClock, CheckCircle2, Clock, Lock } from 'lucide-react'
 import { apiFetch, ApiRequestError } from '@/lib/api'
 import { bookingStatusBadge, formatDateTime } from '@/lib/format'
 import { Wordmark } from '@/components/brand'
+import { ThemeToggle } from '@/components/theme-toggle'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -108,7 +109,10 @@ export function MagicLinkManagePage() {
   return (
     <div className="min-h-screen bg-hero-grid">
       <div className="mx-auto max-w-lg px-6 py-12">
-        <Wordmark />
+        <div className="flex items-center justify-between">
+          <Wordmark />
+          <ThemeToggle />
+        </div>
         <h1 className="mt-6 text-2xl font-semibold tracking-tight">
           Manage your booking
         </h1>

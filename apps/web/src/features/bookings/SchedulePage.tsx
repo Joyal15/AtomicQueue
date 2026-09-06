@@ -285,12 +285,12 @@ export function SchedulePage() {
                     className="flex items-center justify-between gap-4 px-4 py-2.5"
                   >
                     <div>
-                      <p className="flex items-center gap-2 font-medium">
+                      <div className="flex items-center gap-2 font-medium">
                         {formatTime(slot.datetime)}
                         <Badge variant={slotStatusBadge[slot.status]}>
                           {slot.status}
                         </Badge>
-                      </p>
+                      </div>
                       <p className="text-xs text-muted-foreground">
                         {slot.durationMinutes} min · unit {slot.unitIndex}
                       </p>

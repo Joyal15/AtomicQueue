@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="QueueLess++ — appointment booking with atomic holds, live availability, and no double-bookings."
+      content="AtomicQueue — appointment booking with atomic holds, live availability, and no double-bookings."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -14,7 +14,21 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <title>QueueLess++</title>
+    <title>AtomicQueue</title>
+    <script>
+      // Applied before first paint so there's no light->dark flash.
+      // Kept in sync with lib/theme.ts's storage key/values.
+      (function () {
+        try {
+          var stored = localStorage.getItem('atomicqueue.theme')
+          var dark =
+            stored === 'dark' ||
+            (stored !== 'light' &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches)
+          document.documentElement.classList.toggle('dark', dark)
+        } catch (e) {}
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

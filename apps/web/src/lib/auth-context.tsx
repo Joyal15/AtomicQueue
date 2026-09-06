@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import type { Business } from '@queueless/shared-types'
 
@@ -11,7 +11,7 @@ import {
 
 // Cached in sessionStorage for display only — the real credential is the
 // HttpOnly session cookie, not this.
-const STORAGE_KEY = 'queueless.auth.user'
+const STORAGE_KEY = 'atomicqueue.auth.user'
 
 function readCachedUser(): AuthUser | null {
   try {
@@ -42,7 +42,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     business: null,
   })
 
+  // Bumped by anything more authoritative than the mount-time bootstrap
+  // fetch (a login/signup's setSession, a signOut) so that fetch's
+  // result — if it's still in flight or was duplicated by React 19
+  // Strict Mode's double effect-invocation — can recognize it's stale
+  // and skip its setState instead of clobbering the newer state. Without
+  // this, logging in quickly (before the app-mount /tenants check
+  // resolves) could have that check's late, unauthenticated-or-empty
+  // result silently overwrite the just-set session.
+  const generationRef = useRef(0)
+
   useEffect(() => {
+    const generation = ++generationRef.current
     let cancelled = false
 
     async function bootstrap() {
@@ -54,10 +65,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       try {
         const business = await apiFetch<Business>('/tenants')
-        if (cancelled) return
+        if (cancelled || generationRef.current !== generation) return
         setState({ status: 'authenticated', user: cachedUser, business })
       } catch (error) {
-        if (cancelled) return
+        if (cancelled || generationRef.current !== generation) return
 
         if (error instanceof ApiRequestError && error.status === 401) {
           writeCachedUser(null)
@@ -83,6 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   function setSession(user: AuthUser, business: Business) {
+    generationRef.current += 1
     writeCachedUser(user)
     setState({ status: 'authenticated', user, business })
   }
@@ -93,6 +105,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function signOut() {
+    generationRef.current += 1
+
     try {
       // /api/auth/logout doesn't exist yet — best-effort call; local
       // state is cleared below regardless of the outcome.

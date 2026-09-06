@@ -206,12 +206,12 @@ export function ServicesPage() {
               className="flex items-center justify-between gap-4 rounded-md border border-border px-4 py-3"
             >
               <div className="min-w-0">
-                <p className="flex items-center gap-2 font-medium">
+                <div className="flex items-center gap-2 font-medium">
                   <span className="truncate">{service.name}</span>
                   <Badge variant={service.isActive ? 'success' : 'secondary'}>
                     {service.isActive ? 'active' : 'inactive'}
                   </Badge>
-                </p>
+                </div>
                 <p className="text-sm text-muted-foreground">
                   {service.durationMinutes} min · {formatPrice(service.price)}
                 </p>

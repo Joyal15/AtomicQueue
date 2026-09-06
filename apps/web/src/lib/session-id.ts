@@ -4,7 +4,7 @@
  * credential and carries no identity — just "which browser is holding
  * this slot". Persisted so a hold survives a component remount.
  */
-const KEY = 'queueless.booking.sessionId'
+const KEY = 'atomicqueue.booking.sessionId'
 
 export function getBookingSessionId(): string {
   try {

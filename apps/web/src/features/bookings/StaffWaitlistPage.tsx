@@ -74,12 +74,12 @@ export function StaffWaitlistPage() {
                 className="flex items-center justify-between gap-4 px-4 py-3"
               >
                 <div className="min-w-0">
-                  <p className="flex items-center gap-2 font-medium">
+                  <div className="flex items-center gap-2 font-medium">
                     <span className="truncate">{entry.customer.name}</span>
                     <Badge variant={waitlistStatusBadge[entry.status]}>
                       {entry.status}
                     </Badge>
-                  </p>
+                  </div>
                   <p className="text-sm text-muted-foreground">
                     {entry.customer.contact} · since {formatDate(entry.createdAt)}
                   </p>

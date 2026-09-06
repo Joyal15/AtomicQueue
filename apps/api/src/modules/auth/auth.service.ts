@@ -2,7 +2,8 @@ import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import { createSession, deleteSession } from "./auth.session.js";
 import { UserModel } from "./auth.model.js";
-import { createBusiness } from "../tenants/tenants.service.js";
+import { createBusiness, getBusinessById } from "../tenants/tenants.service.js";
+import type { Business } from "@queueless/shared-types";
 import { AppError } from "../../lib/Apperror.js";
 import {
   recordLoginFailure,
@@ -53,6 +54,7 @@ export interface LoginResult {
     businessId: string;
     status: "active";
   };
+  business: Business;
   sessionId: string;
 }
 
@@ -391,6 +393,18 @@ export async function login(
 
   const authSession = await createSession(String(user._id));
 
+  const business = await getBusinessById(user.businessId);
+  if (!business) {
+    // Every active user has a valid businessId (§2) — null here means
+    // the business record is gone (data-integrity issue), not a normal
+    // login failure, so this isn't folded into INVALID_CREDENTIALS.
+    throw new AppError(
+      500,
+      'BUSINESS_NOT_FOUND',
+      'Could not load your business. Please contact support.',
+    );
+  }
+
   return {
     user: {
       id: String(user._id),
@@ -400,6 +414,7 @@ export async function login(
       businessId: user.businessId,
       status: user.status,
     },
+    business,
     sessionId: authSession.sessionId,
   };
 }
