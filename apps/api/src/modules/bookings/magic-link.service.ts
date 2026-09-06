@@ -8,11 +8,18 @@ import { sendEmail } from '../notifications/index.js';
 import { BookingModel } from './bookings.model.js';
 
 const MAGIC_LINK_COOKIE_NAME = 'booking_access';
+// The exchanged session cookie is short-lived (§9a) — one hour.
 const MAGIC_LINK_COOKIE_MAX_AGE_MS = 60 * 60 * 1000;
-// Matches bookings.service.ts's ACCESS_TOKEN_TTL_MS — kept as a
-// separate local constant rather than exported/shared, same as that
-// file keeps its own Redis-hold constants local.
-const ACCESS_TOKEN_TTL_MS = 60 * 60 * 1000;
+// The token/booking-level expiry is a DIFFERENT clock (§9a "two
+// independent clocks"): anchored to the appointment, not creation, so a
+// link for a far-future booking doesn't die before it happens.
+const ACCESS_TOKEN_TTL_DAYS = 7;
+
+function computeAccessTokenExpiry(slotDatetime: Date): Date {
+  return new Date(
+    slotDatetime.getTime() + ACCESS_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000,
+  );
+}
 
 const RESEND_RATE_LIMIT_WINDOW_SECONDS = 15 * 60;
 const RESEND_RATE_LIMIT_MAX_ATTEMPTS = 3;
@@ -191,7 +198,7 @@ export async function resendMagicLink(contact: string): Promise<void> {
 
   const rawAccessToken = randomBytes(32).toString('base64url');
   const accessTokenHash = hashMagicLinkToken(rawAccessToken);
-  const accessTokenExpiresAt = new Date(Date.now() + ACCESS_TOKEN_TTL_MS);
+  const accessTokenExpiresAt = computeAccessTokenExpiry(soonest.datetime);
 
   await BookingModel.updateOne(
     { _id: soonest.booking._id },
