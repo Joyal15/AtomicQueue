@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { useParams } from 'react-router-dom'
-import { CalendarOff, Clock } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { Link, useParams } from 'react-router-dom'
+import { CalendarOff, CheckCircle2, Clock } from 'lucide-react'
 
 import { apiFetch, ApiRequestError } from '@/lib/api'
+import { useSlotUpdates } from '@/lib/realtime'
+import { getBookingSessionId } from '@/lib/session-id'
 import { formatPrice, formatTime, groupByDay } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Wordmark } from '@/components/brand'
@@ -56,16 +58,20 @@ function providerKey(providerId: string, providerType: string): string {
   return `${providerType}:${providerId}`
 }
 
+function bucketKey(b: { providerId: string; datetime: string }): string {
+  return `${b.providerId}@${b.datetime}`
+}
+
 /**
- * Public, unauthenticated booking page — `/b/:slug`. Browsing (service →
- * provider → live availability grid) is fully real, backed by the public
- * catalog/availability endpoints. It does NOT let a customer claim a
- * slot directly — there's no anonymous booking endpoint (only staff/
- * owner sessions create bookings today) — so it offers the waitlist,
- * which is real and works, rather than a dead submit button.
+ * Public, unauthenticated booking page — `/b/:slug`. Real end-to-end:
+ * browse live availability, place a fenced Redis hold on a time, confirm
+ * with contact details. A lost race (someone else claims the last unit)
+ * surfaces the waitlist instead. Live-updates the remaining counts over
+ * Socket.IO with no polling — the "money demo" (architecture doc §12).
  */
 export function PublicBookingPage() {
   const { slug } = useParams<{ slug: string }>()
+  const [sessionId] = useState(getBookingSessionId)
 
   const [business, setBusiness] = useState<PublicBusiness | null>(null)
   const [businessError, setBusinessError] = useState<string | null>(null)
@@ -83,13 +89,8 @@ export function PublicBookingPage() {
     string | null
   >(null)
 
-  const [waitlistOpenFor, setWaitlistOpenFor] =
-    useState<AvailabilityBucket | null>(null)
-
-  const selectedService = useMemo(
-    () => services?.find((s) => s.id === serviceId) ?? null,
-    [services, serviceId],
-  )
+  const [booking, setBooking] = useState<AvailabilityBucket | null>(null)
+  const [waitlistFor, setWaitlistFor] = useState<AvailabilityBucket | null>(null)
 
   const selectedProvider = useMemo(
     () =>
@@ -100,15 +101,40 @@ export function PublicBookingPage() {
   )
 
   const availabilityKey = serviceId ? `${serviceId}:${providerKeyValue}` : null
-
   if (availabilityKey && loadedAvailabilityKey !== availabilityKey) {
     setLoadedAvailabilityKey(availabilityKey)
     setBuckets(null)
   }
 
+  const loadAvailability = useCallback(async () => {
+    if (!slug || !serviceId) return
+    try {
+      const params = new URLSearchParams({ serviceId })
+      if (selectedProvider) {
+        params.set('providerId', selectedProvider.providerId)
+        params.set('providerType', selectedProvider.providerType)
+      }
+      const data = await apiFetch<AvailabilityBucket[]>(
+        `/businesses/${slug}/availability?${params.toString()}`,
+      )
+      setBuckets(
+        [...data].sort(
+          (a, b) =>
+            new Date(a.datetime).getTime() - new Date(b.datetime).getTime(),
+        ),
+      )
+      setBucketsError(null)
+    } catch (err) {
+      setBucketsError(
+        err instanceof ApiRequestError
+          ? err.message
+          : 'Could not load availability.',
+      )
+    }
+  }, [slug, serviceId, selectedProvider])
+
   useEffect(() => {
     if (!slug) return
-
     async function load() {
       try {
         const [businessData, servicesData, providersData] = await Promise.all([
@@ -138,35 +164,27 @@ export function PublicBookingPage() {
   }, [slug])
 
   useEffect(() => {
-    if (!slug || !serviceId) return
-
-    async function loadAvailability() {
-      try {
-        const params = new URLSearchParams({ serviceId })
-        if (selectedProvider) {
-          params.set('providerId', selectedProvider.providerId)
-          params.set('providerType', selectedProvider.providerType)
-        }
-        const data = await apiFetch<AvailabilityBucket[]>(
-          `/businesses/${slug}/availability?${params.toString()}`,
-        )
-        setBuckets(
-          [...data].sort(
-            (a, b) =>
-              new Date(a.datetime).getTime() - new Date(b.datetime).getTime(),
-          ),
-        )
-        setBucketsError(null)
-      } catch (err) {
-        setBucketsError(
-          err instanceof ApiRequestError
-            ? err.message
-            : 'Could not load availability.',
-        )
-      }
+    async function run() {
+      await loadAvailability()
     }
-    void loadAvailability()
-  }, [slug, serviceId, selectedProvider])
+    void run()
+  }, [loadAvailability])
+
+  // Live: patch the matching bucket's remaining count as claims land
+  // elsewhere — no refetch, no polling.
+  useSlotUpdates((payload) => {
+    if (!('remaining' in payload)) return
+    setBuckets(
+      (current) =>
+        current?.map((b) =>
+          b.providerId === payload.providerId &&
+          b.providerType === payload.providerType &&
+          b.datetime === payload.datetime
+            ? { ...b, remaining: payload.remaining }
+            : b,
+        ) ?? current,
+    )
+  }, slug)
 
   if (notFound) {
     return (
@@ -198,7 +216,8 @@ export function PublicBookingPage() {
             </h1>
           )}
           <p className="mt-1.5 text-sm text-muted-foreground">
-            Pick a service and time. We'll hold it while you confirm.
+            Pick a service and a time — we'll hold it for 5 minutes while you
+            confirm.
           </p>
         </div>
 
@@ -257,13 +276,6 @@ export function PublicBookingPage() {
                     </Select>
                   </div>
                 </div>
-
-                {selectedService && (
-                  <p className="text-sm text-muted-foreground">
-                    {selectedService.durationMinutes} minutes ·{' '}
-                    {formatPrice(selectedService.price)}
-                  </p>
-                )}
               </CardContent>
             </Card>
 
@@ -289,8 +301,7 @@ export function PublicBookingPage() {
 
                 {buckets?.length === 0 && (
                   <p className="text-sm text-muted-foreground">
-                    No upcoming times for this service right now — join the
-                    waitlist below to be notified.
+                    No upcoming times for this service right now.
                   </p>
                 )}
 
@@ -305,9 +316,13 @@ export function PublicBookingPage() {
                         const multi = bucket.total > 1
                         return (
                           <button
-                            key={`${bucket.providerId}-${bucket.datetime}`}
+                            key={bucketKey(bucket)}
                             type="button"
-                            onClick={() => setWaitlistOpenFor(bucket)}
+                            onClick={() =>
+                              full
+                                ? setWaitlistFor(bucket)
+                                : setBooking(bucket)
+                            }
                             className={cn(
                               'inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium transition-colors',
                               full
@@ -338,29 +353,285 @@ export function PublicBookingPage() {
                     </div>
                   </div>
                 ))}
-
-                <Alert>
-                  <span className="flex items-start gap-2">
-                    <Clock className="mt-0.5 size-4 shrink-0" />
-                    Online self-checkout isn't live yet — pick a time to join
-                    the waitlist and we'll email you the moment it's
-                    confirmable, or contact the business directly to book.
-                  </span>
-                </Alert>
               </CardContent>
             </Card>
           </div>
         )}
       </div>
 
-      {waitlistOpenFor && business && (
+      {booking && slug && (
+        <BookingDialog
+          slug={slug}
+          sessionId={sessionId}
+          bucket={booking}
+          onClose={() => {
+            setBooking(null)
+            void loadAvailability()
+          }}
+          onSlotLost={(b) => {
+            setBooking(null)
+            void loadAvailability()
+            setWaitlistFor(b)
+          }}
+        />
+      )}
+
+      {waitlistFor && business && (
         <WaitlistDialog
           businessId={business.id}
-          bucket={waitlistOpenFor}
-          onClose={() => setWaitlistOpenFor(null)}
+          bucket={waitlistFor}
+          onClose={() => setWaitlistFor(null)}
         />
       )}
     </div>
+  )
+}
+
+type BookingStep = 'holding' | 'form' | 'submitting' | 'done'
+
+function BookingDialog({
+  slug,
+  sessionId,
+  bucket,
+  onClose,
+  onSlotLost,
+}: {
+  slug: string
+  sessionId: string
+  bucket: AvailabilityBucket
+  onClose: () => void
+  onSlotLost: (b: AvailabilityBucket) => void
+}) {
+  const [step, setStep] = useState<BookingStep>('holding')
+  const [error, setError] = useState<string | null>(null)
+  const [heldUntil, setHeldUntil] = useState<number | null>(null)
+  const [secondsLeft, setSecondsLeft] = useState<number | null>(null)
+  const [result, setResult] = useState<{ bookingId: string; accessToken: string } | null>(
+    null,
+  )
+
+  const [name, setName] = useState('')
+  const [contactType, setContactType] = useState<'email' | 'phone'>('email')
+  const [contact, setContact] = useState('')
+
+  // Step 1: place the hold on open.
+  useEffect(() => {
+    let cancelled = false
+    async function hold() {
+      try {
+        const res = await apiFetch<{ heldUntil: string }>('/bookings/hold', {
+          method: 'POST',
+          body: JSON.stringify({
+            slug,
+            providerId: bucket.providerId,
+            providerType: bucket.providerType,
+            serviceId: bucket.serviceId,
+            datetime: bucket.datetime,
+            sessionId,
+          }),
+        })
+        if (cancelled) return
+        setHeldUntil(new Date(res.heldUntil).getTime())
+        setStep('form')
+      } catch (err) {
+        if (cancelled) return
+        if (err instanceof ApiRequestError && err.status === 409) {
+          onSlotLost(bucket)
+          return
+        }
+        setError(
+          err instanceof ApiRequestError
+            ? err.message
+            : 'Could not hold this time. Please try again.',
+        )
+      }
+    }
+    void hold()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Countdown.
+  useEffect(() => {
+    if (heldUntil === null) return
+    function tick() {
+      const left = Math.max(0, Math.round((heldUntil! - Date.now()) / 1000))
+      setSecondsLeft(left)
+      if (left <= 0) setError('Your hold expired. Please pick a time again.')
+    }
+    tick()
+    const id = window.setInterval(tick, 1000)
+    return () => window.clearInterval(id)
+  }, [heldUntil])
+
+  const expired = secondsLeft !== null && secondsLeft <= 0
+
+  async function handleConfirm(event: FormEvent) {
+    event.preventDefault()
+    if (expired) return
+    setStep('submitting')
+    setError(null)
+    try {
+      const res = await apiFetch<{ bookingId: string; accessToken: string }>(
+        '/bookings/confirm',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            slug,
+            providerId: bucket.providerId,
+            providerType: bucket.providerType,
+            serviceId: bucket.serviceId,
+            datetime: bucket.datetime,
+            sessionId,
+            customer: { name, contactType, contact },
+          }),
+        },
+      )
+      setResult(res)
+      setStep('done')
+    } catch (err) {
+      setStep('form')
+      setError(
+        err instanceof ApiRequestError
+          ? err.message
+          : 'Could not confirm the booking.',
+      )
+    }
+  }
+
+  const manageUrl = result
+    ? `/manage?bookingId=${result.bookingId}&token=${encodeURIComponent(result.accessToken)}`
+    : ''
+
+  const when = new Date(bucket.datetime).toLocaleString(undefined, {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={step === 'done' ? 'Booking confirmed' : 'Confirm your booking'}
+      description={step === 'done' ? undefined : when}
+      footer={
+        step === 'done' ? (
+          <Button onClick={onClose}>Done</Button>
+        ) : (
+          <>
+            <Button variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              form="confirm-booking-form"
+              disabled={step !== 'form' || expired}
+            >
+              {step === 'submitting' && <Spinner />}
+              Confirm booking
+            </Button>
+          </>
+        )
+      }
+    >
+      {step === 'holding' && (
+        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Spinner /> Holding this time…
+        </p>
+      )}
+
+      {(step === 'form' || step === 'submitting') && (
+        <div className="space-y-4">
+          {secondsLeft !== null && !expired && (
+            <div className="flex items-center gap-2 rounded-md bg-accent px-3 py-2 text-sm text-accent-foreground">
+              <Clock className="size-4" />
+              Held for {Math.floor(secondsLeft / 60)}:
+              {String(secondsLeft % 60).padStart(2, '0')}
+            </div>
+          )}
+          {error && <Alert variant="destructive">{error}</Alert>}
+
+          <form id="confirm-booking-form" className="space-y-4" onSubmit={handleConfirm}>
+            <div className="space-y-2">
+              <Label htmlFor="cust-name">Name</Label>
+              <Input
+                id="cust-name"
+                required
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-[8rem_1fr]">
+              <div className="space-y-2">
+                <Label htmlFor="cust-contact-type">Contact</Label>
+                <Select
+                  id="cust-contact-type"
+                  value={contactType}
+                  onChange={(e) =>
+                    setContactType(e.target.value as 'email' | 'phone')
+                  }
+                >
+                  <option value="email">Email</option>
+                  <option value="phone">Phone</option>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="cust-contact">
+                  {contactType === 'email' ? 'Email address' : 'Phone number'}
+                </Label>
+                <Input
+                  id="cust-contact"
+                  required
+                  type={contactType === 'email' ? 'email' : 'tel'}
+                  value={contact}
+                  onChange={(e) => setContact(e.target.value)}
+                />
+              </div>
+            </div>
+            {contactType === 'phone' && (
+              <p className="text-xs text-muted-foreground">
+                Phone bookings can't be self-managed online — the business will
+                handle any changes for you.
+              </p>
+            )}
+          </form>
+        </div>
+      )}
+
+      {step === 'done' && result && (
+        <div className="space-y-4">
+          <Alert variant="success">
+            <span className="flex items-center gap-2">
+              <CheckCircle2 className="size-4 shrink-0" />
+              You're booked for {when}.
+            </span>
+          </Alert>
+          {contactType === 'email' ? (
+            <p className="text-sm text-muted-foreground">
+              A confirmation with a manage link is on its way to your email.
+              You can also{' '}
+              <Link
+                to={manageUrl}
+                className="font-medium text-primary underline underline-offset-4"
+              >
+                manage this booking now
+              </Link>
+              .
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Contact the business directly if you need to change or cancel
+              this booking.
+            </p>
+          )}
+        </div>
+      )}
+    </Dialog>
   )
 }
 
@@ -383,7 +654,6 @@ function WaitlistDialog({
     event.preventDefault()
     setSubmitting(true)
     setError(null)
-
     try {
       await apiFetch('/waitlist', {
         method: 'POST',
@@ -417,7 +687,7 @@ function WaitlistDialog({
         weekday: 'long',
         month: 'long',
         day: 'numeric',
-      })}`}
+      })} — we'll email you the moment it opens up.`}
       footer={
         done ? (
           <Button onClick={onClose}>Done</Button>
@@ -426,11 +696,7 @@ function WaitlistDialog({
             <Button variant="outline" onClick={onClose} disabled={submitting}>
               Cancel
             </Button>
-            <Button
-              type="submit"
-              form="waitlist-form"
-              disabled={submitting}
-            >
+            <Button type="submit" form="waitlist-form" disabled={submitting}>
               {submitting && <Spinner />}
               Join waitlist
             </Button>

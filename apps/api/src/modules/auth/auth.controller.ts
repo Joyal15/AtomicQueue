@@ -1,4 +1,5 @@
 import type { RequestHandler } from 'express';
+import { z } from 'zod';
 
 import { asyncHandler } from '../../lib/asyncHandler.js';
 
@@ -11,6 +12,26 @@ import {
 } from './auth.service.js';
 
 const SESSION_COOKIE_NAME = 'session';
+
+/** Body schema for POST /api/auth/signup, enforced by `validate()`. */
+export const signupSchema = z.object({
+  name: z.string().trim().min(1, 'Your name is required.'),
+  email: z.string().trim().min(1, 'Email is required.').email('Enter a valid email address.'),
+  password: z.string().min(8, 'Password must be at least 8 characters.'),
+  businessName: z.string().trim().min(1, 'Business name is required.'),
+});
+
+/** Body schema for POST /api/auth/login. */
+export const loginSchema = z.object({
+  email: z.string().trim().min(1, 'Email is required.').email('Enter a valid email address.'),
+  password: z.string().min(1, 'Password is required.'),
+});
+
+/** Body schema for POST /api/staff/invitations/:token/accept. */
+export const acceptInvitationSchema = z.object({
+  name: z.string().trim().min(1, 'Your name is required.'),
+  password: z.string().min(8, 'Password must be at least 8 characters.'),
+});
 
 const SESSION_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 

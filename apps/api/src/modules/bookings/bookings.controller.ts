@@ -3,7 +3,8 @@ import { z } from 'zod';
 
 import { asyncHandler } from '../../lib/asyncHandler.js';
 import { AppError } from '../../lib/Apperror.js';
-import { 
+import { getBusinessBySlug } from '../tenants/index.js';
+import {
   confirmBooking,
   createWalkInBooking,
   listBookings,
@@ -11,6 +12,8 @@ import {
   cancelBooking,
   rescheduleBooking,
   updateBookingOutcome,
+  holdSlotForCustomer,
+  confirmCustomerBooking,
 } from './bookings.service.js';
 
 import {
@@ -30,6 +33,32 @@ export const createBookingSchema = z.object({
   providerType: z.enum(['staff', 'resource']),
   serviceId: z.string().trim().min(1, 'Service is required.'),
   datetime: z.string().trim().min(1, 'Date/time is required.'),
+  customer: z.object({
+    name: z.string().trim().min(1, 'Name is required.'),
+    contactType: z.enum(['email', 'phone']),
+    contact: z.string().trim().min(1, 'Contact is required.'),
+  }),
+});
+
+/**
+ * Body schema for the anonymous customer hold step
+ * (`POST /api/bookings/hold`, architecture doc §13a). The customer has
+ * no session — identity is the browser-generated `sessionId` and the
+ * business is resolved from its public `slug`. No `slotId`: for a
+ * capacity-N resource the client only knows the (provider, datetime,
+ * service) bucket (§4b).
+ */
+export const holdCustomerBookingSchema = z.object({
+  slug: z.string().trim().min(1, 'Business is required.'),
+  providerId: z.string().trim().min(1, 'Provider is required.'),
+  providerType: z.enum(['staff', 'resource']),
+  serviceId: z.string().trim().min(1, 'Service is required.'),
+  datetime: z.string().trim().min(1, 'Date/time is required.'),
+  sessionId: z.string().trim().min(8, 'A session id is required.'),
+});
+
+/** Body schema for the anonymous customer confirm step (`POST /api/bookings/confirm`). */
+export const confirmCustomerBookingSchema = holdCustomerBookingSchema.extend({
   customer: z.object({
     name: z.string().trim().min(1, 'Name is required.'),
     contactType: z.enum(['email', 'phone']),
@@ -102,6 +131,61 @@ export const createBooking = asyncHandler(async (req, res) => {
   res.status(201).json({
     data: result,
   });
+});
+
+/**
+ * `POST /api/bookings/hold` — anonymous. Places a fenced Redis hold on
+ * one available unit of a (provider, datetime, service) bucket. A
+ * `409 SLOT_NO_LONGER_AVAILABLE` here is the client's cue to offer the
+ * waitlist.
+ */
+export const holdCustomerBookingController = asyncHandler(async (req, res) => {
+  const business = await getBusinessBySlug(req.body.slug);
+
+  if (!business) {
+    throw new AppError(404, 'NOT_FOUND', 'Business not found.');
+  }
+
+  const result = await holdSlotForCustomer({
+    businessId: business.id,
+    providerId: req.body.providerId,
+    providerType: req.body.providerType,
+    serviceId: req.body.serviceId,
+    datetime: req.body.datetime,
+    sessionId: req.body.sessionId,
+  });
+
+  res.status(201).json({ data: result });
+});
+
+/**
+ * `POST /api/bookings/confirm` — anonymous. Confirms the slot this
+ * browser session is holding and creates the `Booking` (with its
+ * magic-link credential). Routes through the same `finalizeConfirmation`
+ * the authenticated path uses — no parallel customer state machine (§9a).
+ */
+export const confirmCustomerBookingController = asyncHandler(async (req, res) => {
+  const business = await getBusinessBySlug(req.body.slug);
+
+  if (!business) {
+    throw new AppError(404, 'NOT_FOUND', 'Business not found.');
+  }
+
+  const result = await confirmCustomerBooking({
+    businessId: business.id,
+    providerId: req.body.providerId,
+    providerType: req.body.providerType,
+    serviceId: req.body.serviceId,
+    datetime: req.body.datetime,
+    sessionId: req.body.sessionId,
+    customer: {
+      name: req.body.customer.name,
+      contactType: req.body.customer.contactType,
+      contact: req.body.customer.contact,
+    },
+  });
+
+  res.status(201).json({ data: result });
 });
 
 export function getBookingsStatus(

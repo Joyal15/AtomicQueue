@@ -22,6 +22,9 @@ import type { ProviderType, SlotStatus } from '@queueless/shared-types';
 import { env } from '../../lib/env.js';
 import { logger } from '../../lib/logger.js';
 import { resolveAuthenticatedUser } from '../auth/index.js';
+// Concrete file, not the tenants barrel, to keep this import off the
+// tenants -> staff -> slots -> realtime module cycle.
+import { getBusinessBySlug } from '../tenants/tenants.service.js';
 
 const SESSION_COOKIE_NAME = 'session';
 const SLOT_UPDATED_EVENT = 'slot:updated';
@@ -59,18 +62,35 @@ export function initRealtime(httpServer: HttpServer): Server {
 
   io.use(async (socket: Socket, next) => {
     try {
+      // Staff/owner: identity + room from the session cookie, resolved
+      // server-side (§9). Never trust a client-supplied businessId.
       const sessionId = readSessionCookie(socket.handshake.headers.cookie);
       const user = await resolveAuthenticatedUser(sessionId);
 
-      if (!user) {
-        next(new Error('Unauthenticated'));
+      if (user) {
+        socket.data.businessId = user.businessId;
+        socket.data.userId = user.userId;
+        next();
         return;
       }
 
-      socket.data.businessId = user.businessId;
-      socket.data.userId = user.userId;
+      // Anonymous customer on a public booking page: no session, so the
+      // room is resolved from the business's PUBLIC slug — the same
+      // slug already in the page URL and used by every public REST
+      // endpoint. The slug is resolved to a businessId server-side here;
+      // the client never names a room or businessId directly (§7/§9),
+      // and `slot:updated` payloads carry no non-public fields (§13).
+      const slug = socket.handshake.auth?.slug;
+      if (typeof slug === 'string' && slug.length > 0) {
+        const business = await getBusinessBySlug(slug);
+        if (business) {
+          socket.data.businessId = business.id;
+          next();
+          return;
+        }
+      }
 
-      next();
+      next(new Error('Unauthenticated'));
     } catch (error) {
       next(error instanceof Error ? error : new Error('Authentication failed'));
     }

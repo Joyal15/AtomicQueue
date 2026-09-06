@@ -161,11 +161,12 @@ export function StaffPage() {
             <Alert variant="success">
               <p>
                 Invitation created for <strong>{lastInvite.email}</strong>.
-                Email delivery isn't wired up yet — share this token with them:
+                Email delivery isn't wired up yet — send them this link to
+                accept:
               </p>
               <div className="mt-2 flex items-center gap-2">
                 <code className="min-w-0 flex-1 truncate rounded bg-card px-2 py-1 text-xs text-foreground">
-                  {lastInvite.token}
+                  {`${window.location.origin}/accept?token=${lastInvite.token}`}
                 </code>
                 <Button
                   type="button"
@@ -173,10 +174,12 @@ export function StaffPage() {
                   size="sm"
                   onClick={async () => {
                     try {
-                      await navigator.clipboard.writeText(lastInvite.token)
+                      await navigator.clipboard.writeText(
+                        `${window.location.origin}/accept?token=${lastInvite.token}`,
+                      )
                       setCopied(true)
                     } catch {
-                      /* clipboard blocked — token is visible anyway */
+                      /* clipboard blocked — link is visible anyway */
                     }
                   }}
                 >

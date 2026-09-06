@@ -9,6 +9,8 @@ import {
   getBookingsStatus,
   getBookings,
   createWalkInBookingController,
+  holdCustomerBookingController,
+  confirmCustomerBookingController,
   exchangeMagicLinkController,
   resendMagicLinkController,
   getCustomerBookingController,
@@ -18,6 +20,8 @@ import {
   rescheduleStaffBookingController,
   updateBookingOutcomeController,
   createBookingSchema,
+  holdCustomerBookingSchema,
+  confirmCustomerBookingSchema,
   exchangeMagicLinkSchema,
   resendMagicLinkSchema,
   rescheduleBookingSchema,
@@ -32,6 +36,20 @@ import {
 const bookingsRouter = Router();
 
 bookingsRouter.get('/status', getBookingsStatus);
+
+// Anonymous customer booking (architecture doc §13a) — no session, the
+// browser-generated sessionId in the body fences the Redis hold.
+bookingsRouter.post(
+  '/hold',
+  validate(holdCustomerBookingSchema),
+  holdCustomerBookingController,
+);
+
+bookingsRouter.post(
+  '/confirm',
+  validate(confirmCustomerBookingSchema),
+  confirmCustomerBookingController,
+);
 
 bookingsRouter.post(
   '/magic-link/exchange',

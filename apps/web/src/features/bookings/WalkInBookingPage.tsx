@@ -32,7 +32,6 @@ interface Provider {
 
 interface CreatedBooking {
   bookingId: string
-  accessToken: string
 }
 
 function providerKey(providerId: string, providerType: string): string {
@@ -40,9 +39,11 @@ function providerKey(providerId: string, providerType: string): string {
 }
 
 /**
- * Staff/owner books directly on a customer's behalf — no hold step from
- * the UI's point of view (POST /api/bookings runs the claim → confirm
- * sequence server-side in one call).
+ * Staff/owner books directly on a customer's behalf — the §3 walk-in
+ * transition: `available → confirmed` in one atomic write (POST
+ * /api/bookings/walk-in), no hold step, `Booking.createdBy` set to the
+ * acting user server-side. Customers booked this way have no
+ * self-service magic link (§9a); the business manages any changes.
  */
 export function WalkInBookingPage() {
   const [services, setServices] = useState<Service[] | null>(null)
@@ -146,7 +147,7 @@ export function WalkInBookingPage() {
     }
 
     try {
-      const result = await apiFetch<CreatedBooking>('/bookings', {
+      const result = await apiFetch<CreatedBooking>('/bookings/walk-in', {
         method: 'POST',
         body: JSON.stringify({
           providerId: selectedProvider.providerId,
@@ -322,15 +323,12 @@ export function WalkInBookingPage() {
             <Alert variant="success">
               <p className="flex items-center gap-2 font-medium">
                 <CheckCircle2 className="size-4 shrink-0" />
-                Booked.
+                Booked — it's on the schedule now.
               </p>
-              <p className="mt-1">
-                No email delivery yet — if this customer wants self-service
-                manage access later, share this token:
+              <p className="mt-1 text-muted-foreground">
+                Walk-ins are managed here by staff; the customer has no
+                separate self-service link.
               </p>
-              <code className="mt-1.5 block break-all rounded bg-card px-2 py-1 text-xs text-foreground">
-                {created.accessToken}
-              </code>
             </Alert>
           )}
         </CardContent>

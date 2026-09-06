@@ -4,6 +4,7 @@ import { useAuth } from '@/lib/use-auth'
 import { LandingPage } from '@/features/marketing/LandingPage'
 import { LoginPage } from '@/features/auth/LoginPage'
 import { SignupPage } from '@/features/auth/SignupPage'
+import { AcceptInvitePage } from '@/features/auth/AcceptInvitePage'
 import { RequireAuth } from '@/features/auth/RequireAuth'
 import { DashboardLayout } from '@/features/tenants/DashboardLayout'
 import { DashboardOverviewPage } from '@/features/tenants/DashboardOverviewPage'
@@ -24,6 +25,7 @@ function App() {
       <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/signup" element={<SignupPage />} />
+      <Route path="/accept" element={<AcceptInvitePage />} />
       <Route path="/b/:slug" element={<PublicBookingPage />} />
       <Route path="/manage" element={<MagicLinkManagePage />} />
 

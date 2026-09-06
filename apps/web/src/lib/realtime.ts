@@ -2,10 +2,11 @@ import { useEffect, useRef } from 'react'
 import { io, type Socket } from 'socket.io-client'
 
 /**
- * Mirrors the backend's realtime module (`apps/api/src/modules/realtime`),
- * which explicitly documents this as a DRAFT contract not yet agreed with
- * the bookings module — not published to `@queueless/shared-types` for
- * that reason. Expect this shape to change.
+ * Matches the backend realtime module's locked `slot:updated` contract
+ * (`apps/api/src/modules/realtime/realtime.gateway.ts`): a `{ slotId,
+ * status }` shape for a single slot's status flip, and a `{ providerId,
+ * providerType, datetime, remaining }` shape for a bucket whose
+ * remaining count changed (a confirm consuming a unit).
  */
 export type SlotUpdatePayload =
   | { slotId: string; status: string }
@@ -18,43 +19,51 @@ export type SlotUpdatePayload =
 
 const SLOT_UPDATED_EVENT = 'slot:updated'
 
-// One shared connection per page load, created lazily the first time a
-// component actually needs it (never on the login/signup pages, since
-// nothing there calls useSlotUpdates). Cookie-based auth, so no token is
-// passed here — the server resolves identity from the session cookie at
-// handshake, same as every HTTP request (see apiFetch).
+// One shared connection per page load. Staff/owner pages authenticate
+// via the session cookie (no arg). The public booking page has no
+// session, so it passes the business `slug` in the handshake auth — the
+// server resolves that to a businessId and joins the tenant room (the
+// slug is public and already in the page URL; the client never names a
+// room directly).
 let sharedSocket: Socket | null = null
+let sharedSocketKey: string | null = null
 
-function getSocket(): Socket {
-  if (!sharedSocket) {
-    sharedSocket = io({
-      path: '/socket.io',
-      withCredentials: true,
-    })
+function getSocket(slug?: string): Socket {
+  const key = slug ?? '__session__'
+  if (sharedSocket && sharedSocketKey === key) {
+    return sharedSocket
   }
+  if (sharedSocket) {
+    sharedSocket.disconnect()
+    sharedSocket = null
+  }
+  sharedSocket = io({
+    path: '/socket.io',
+    withCredentials: true,
+    auth: slug ? { slug } : {},
+  })
+  sharedSocketKey = key
   return sharedSocket
 }
 
 /**
- * Subscribes to live `slot:updated` events for as long as the calling
- * component is mounted. Best-effort, same as the backend emit — a missed
- * event just means the UI is stale until the next normal refetch, nothing
- * ever depends on this arriving.
+ * Subscribes to live `slot:updated` events while the calling component
+ * is mounted. Pass `slug` on a public (unauthenticated) page; omit it on
+ * staff/owner pages. Best-effort — a missed event just means the UI is
+ * stale until the next refetch.
  */
 export function useSlotUpdates(
   onUpdate: (payload: SlotUpdatePayload) => void,
+  slug?: string,
 ): void {
   const handlerRef = useRef(onUpdate)
 
-  // Keep the ref pointed at the latest callback without re-subscribing
-  // the socket listener below on every render. Writing to a ref must
-  // happen in an effect, not during render itself.
   useEffect(() => {
     handlerRef.current = onUpdate
   })
 
   useEffect(() => {
-    const socket = getSocket()
+    const socket = getSocket(slug)
     const listener = (payload: SlotUpdatePayload) => handlerRef.current(payload)
 
     socket.on(SLOT_UPDATED_EVENT, listener)
@@ -62,5 +71,5 @@ export function useSlotUpdates(
     return () => {
       socket.off(SLOT_UPDATED_EVENT, listener)
     }
-  }, [])
+  }, [slug])
 }
