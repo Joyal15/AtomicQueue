@@ -415,3 +415,57 @@ export async function logoutEverywhere(userId: string): Promise<void> {
     },
   });
 }
+
+export type StaffStatus = 'active' | 'removed';
+
+export interface StaffStatusUpdateResult {
+  id: string;
+  name: string;
+  email: string;
+  status: StaffStatus;
+}
+
+/**
+ * Flips a staff user's account status. Exported so the `tenants` module's
+ * staff-removal cascade (architecture doc §9b) can participate this write
+ * in its own transaction (alongside deactivating availability and
+ * cancelling future slots) without ever writing to `UserModel` directly.
+ *
+ * Scoped to `role: 'staff'` only — an owner's status can't be flipped
+ * through this path. `fromStatus` guards against a stale double-call
+ * (already removed/already active) racing the caller's own idempotency
+ * check.
+ *
+ * Removing a staff member also stamps `sessionsInvalidatedAt`, the same
+ * effect `logoutEverywhere` has, folded into this one write instead of a
+ * second round-trip.
+ */
+export async function setStaffStatus(
+  businessId: string,
+  userId: string,
+  fromStatus: StaffStatus,
+  toStatus: StaffStatus,
+  session?: mongoose.ClientSession,
+): Promise<StaffStatusUpdateResult | null> {
+  const update: Record<string, unknown> = { status: toStatus };
+  if (toStatus === 'removed') {
+    update.sessionsInvalidatedAt = new Date();
+  }
+
+  const user = await UserModel.findOneAndUpdate(
+    { _id: userId, businessId, role: 'staff', status: fromStatus },
+    { $set: update },
+    { session, new: true },
+  );
+
+  if (!user) {
+    return null;
+  }
+
+  return {
+    id: String(user._id),
+    name: user.name,
+    email: user.email,
+    status: user.status,
+  };
+}

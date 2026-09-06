@@ -33,3 +33,10 @@ export {
   type RevokeStaffInvitationResult,
   type ConsumedInvitation,
 } from './staffInvitations.service.js';
+
+export {
+  listStaffMembers,
+  removeStaffMember,
+  reactivateStaffMember,
+  type StaffMember,
+} from './staff.service.js';

@@ -15,6 +15,11 @@ import {
   listStaffInvitationsController,
   revokeStaffInvitationController,
 } from './staffInvitations.controller.js';
+import {
+  listStaffMembersController,
+  removeStaffMemberController,
+  reactivateStaffMemberController,
+} from './staff.controller.js';
 
 const router = Router();
 
@@ -46,5 +51,18 @@ router.get('/invitations', listStaffInvitationsController);
 // DELETE /api/tenants/invitations/:invitationId — owner-only revoke.
 // 404 missing/cross-tenant, 409 not pending.
 router.delete('/invitations/:invitationId', revokeStaffInvitationController);
+
+// GET /api/tenants/staff — owner-only, lists this business's staff
+// accounts (active and removed).
+router.get('/staff', listStaffMembersController);
+
+// PATCH /api/tenants/staff/:userId/remove — owner-only. Transactional
+// cascade (architecture doc §9b): status -> 'removed', availability
+// deleted, future available/held slots cancelled. Confirmed bookings
+// untouched.
+router.patch('/staff/:userId/remove', removeStaffMemberController);
+
+// PATCH /api/tenants/staff/:userId/reactivate — owner-only, non-cascading.
+router.patch('/staff/:userId/reactivate', reactivateStaffMemberController);
 
 export default router;
