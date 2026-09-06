@@ -1,234 +1,203 @@
 # QueueLess++
 
-Multi-tenant appointment and queue management platform. The core engineering
-problem QueueLess++ solves is guaranteeing that two customers can never book
-the same slot under concurrent load — and extending that same correctness
-guarantee to rescheduling.
+Multi-tenant appointment booking platform. The core engineering problem it
+solves is guaranteeing that **two customers can never book the same slot
+under concurrent load** — and extending that same correctness guarantee to
+holds, rescheduling, and cascading provider/service changes.
 
 See [`queueless-plus-plus-architecture.md`](./queueless-plus-plus-architecture.md)
-for the full design document (schema, state machine, transaction strategy,
-Redis usage, queue/real-time architecture, and phase plan). This README
-covers what's actually in the repo today and how to run it.
+for the full design (schema, state machine, transaction strategy, Redis
+usage, queue/real-time architecture) and
+[`PROJECT_PLAN.md`](./PROJECT_PLAN.md) for the phase-by-phase work
+breakdown. This README is how to run and understand what's in the repo
+today.
 
-## Core Engineering Focus
+## What works today (through Phase 5)
 
-Per the architecture document, the project is built around:
+- **Auth** — owner signup (business + owner created in one Mongo
+  transaction), login, logout, "log out everywhere". Server-side opaque
+  sessions in Redis behind an `HttpOnly; Secure; SameSite=Strict` cookie —
+  never JWT. `role`/`businessId`/`status` are re-read fresh from Mongo on
+  every request. Login is rate-limited per-account (5 failures → 15-minute
+  lockout, not bypassable with the correct password mid-window) and per-IP,
+  both atomic in Redis, fail-closed if Redis is down.
+- **Tenant setup** — business settings, services (CRUD + deactivate/
+  reactivate cascade), resources (CRUD + retire/reactivate cascade),
+  provider availability templates, weekly slot generation (DST-aware, one
+  `Slot` per capacity unit, idempotent).
+- **Staff lifecycle** — owner invites by email → invitee sets a password
+  via a one-time token → staff account created in one transaction. Removal
+  is a soft state change that cascades (availability deleted, future
+  open/held slots cancelled, sessions invalidated); confirmed bookings are
+  left for manual follow-up.
+- **Booking engine** — anonymous `hold` → `confirm` for customers, atomic
+  `available → held → confirmed` conditional writes fenced by a
+  `holdVersion` token and a Redis TTL hold. Concurrent racers on a
+  capacity-N bucket get exactly N wins and the rest `409`. Staff/owner
+  walk-in books `available → confirmed` directly. Manual slot blocking.
+- **Customer self-service** — each booking gets a single-use magic-link
+  token (256-bit, only its SHA-256 hash stored), exchanged once for a
+  short-lived booking-scoped cookie. Three time-based access tiers
+  (manage / view-only / expired). Neutral, rate-limited resend.
+- **Reschedule / cancel** — reschedule is a two-slot atomic swap in one
+  transaction (claim new, release old, or the whole thing aborts). Cancel
+  is one transaction. Both trigger a post-commit waitlist notification and
+  customer emails.
+- **Waitlist** — FIFO opt-in by service (+ optional provider); the next
+  match is notified when a slot is released; notified entries expire after
+  15 minutes via a delayed job.
+- **Realtime** — Socket.IO `slot:updated` events, tenant rooms resolved
+  server-side (staff from the session, public booking page from the
+  business slug). No polling.
+- **Jobs / notifications** — BullMQ worker: transactional + reminder
+  emails (Resend adapter, console stub without keys), recurring weekly
+  slot generation, hold-expiry sweep, waitlist expiry.
+- **AI no-show scoring** — post-commit background job calls Gemini, writes
+  a `noShowRiskNote` visible only to staff. Entirely optional — unset
+  `GEMINI_API_KEY` and the job silently no-ops.
+- **Frontend** — public booking page with live availability, hold
+  countdown, and waitlist fallback; magic-link manage page; owner
+  dashboard (settings, services, staff); staff dashboard (bookings list,
+  schedule, walk-in, waitlist). A 401 anywhere drops the app to the login
+  screen centrally.
 
-- **Multi-tenancy** — every business-scoped collection carries `businessId`,
-  enforced in middleware rather than per-route.
-- **Concurrent booking protection** — an atomic conditional write
-  (`findOneAndUpdate` with a status guard) prevents double-booking, with no
-  read-then-write race window.
-- **Atomic booking operations** — rescheduling spans two documents (release
-  old slot, claim new slot) inside a single MongoDB transaction, so both
-  changes succeed or neither does.
-- **Modular monolith architecture** — one deployable Express app, organized
-  into feature modules (`auth`, `tenants`, `bookings`, and more to come) that
-  only communicate through exported service functions, never by reaching
-  into another module's models.
-
-## Tech Stack
+## Tech stack
 
 | Layer | Technology |
 |---|---|
-| Frontend | React + TypeScript + Vite, Tailwind CSS, shadcn/ui (configured, components not yet generated) |
-| Backend | Node.js + Express + TypeScript |
-| Database | MongoDB Atlas (via Mongoose) |
-| Cache / holds | Redis (Upstash), via ioredis |
-| Logging | Pino (`pino`, `pino-http`) |
+| Frontend | React 19 + TypeScript + Vite, Tailwind CSS, custom UI primitives |
+| Backend | Node.js + Express 4 + TypeScript (ESM, `tsx` in dev) |
+| Database | MongoDB (replica set / Atlas — transactions are used throughout) via Mongoose |
+| Cache / holds / sessions / rate limits | Redis (Upstash) via ioredis |
+| Jobs | BullMQ worker (`npm run worker`) |
+| Realtime | Socket.IO |
+| AI | Google Gemini (optional) |
+| Email | Resend (optional; console stub otherwise) |
 | Validation | Zod |
-| Shared types | Internal `@queueless/shared-types` package |
-| Monorepo tooling | npm workspaces + Turborepo |
+| Monorepo | npm workspaces + Turborepo |
 
-Real-time updates (Socket.IO), background jobs (BullMQ), and AI no-show
-scoring (Gemini) are part of the planned architecture but are **not yet
-present in the codebase** — see [Current Project Status](#current-project-status).
-
-## Repository Structure
+## Repository structure
 
 ```
-.
-├── apps/
-│   ├── api/                  # Express + TypeScript backend
-│   │   └── src/
-│   │       ├── modules/      # auth, tenants, bookings (route/controller/service per module)
-│   │       ├── middleware/   # errorHandler, validate (Zod)
-│   │       ├── lib/          # env, db (Mongoose), redis (ioredis), logger (Pino)
-│   │       └── server.ts
-│   └── web/                  # React + TypeScript frontend (Vite)
-│       └── src/
-├── packages/
-│   └── shared-types/         # TypeScript types shared between apps/api and apps/web
-└── queueless-plus-plus-architecture.md
+apps/
+  api/                     Express + TypeScript backend
+    src/
+      modules/             auth, tenants, staff, services, resources,
+                           providers, availability, slots, bookings,
+                           waitlist, realtime, notifications, noshow
+                           (model / service / controller / routes per module)
+      lib/                 env, db, redis, queue, rateLimit, logger, ...
+      middleware/          errorHandler, validate
+      routes.ts            router barrel, mounted at /api
+      server.ts            HTTP + Socket.IO bootstrap; serves apps/web/dist
+      worker.ts            BullMQ job processor
+  web/                     React + Vite frontend
+    src/features/          auth, tenants, bookings, marketing
+packages/
+  shared-types/            types shared by api + web
+scripts/
+  concurrency-demo.mjs     scripted double-booking race (see below)
 ```
 
 ## Prerequisites
 
-- Node.js and npm compatible with `packageManager: npm@11.17.0` (set in the
-  root `package.json`)
-- A MongoDB Atlas cluster (connection string)
-- An Upstash Redis instance (TCP connection URL, not the REST URL)
+- Node.js ≥ 20, npm (`packageManager: npm@11.17.0`)
+- A **replica-set** MongoDB (MongoDB Atlas is fine) — single-node
+  standalone will not work, the app uses multi-document transactions
+- A Redis instance (Upstash's TCP `rediss://` URL, not the REST URL)
 
-## Environment Setup
-
-**Never commit a real `.env` file.** `.env` is gitignored; 
-`.env.example`
-documents every variable and is the file to copy from.
+## Setup
 
 ```bash
+npm install                 # installs + links all workspaces
 cp .env.example apps/api/.env
-# then fill in the real values
+# fill in MONGODB_URI, REDIS_URL, SESSION_COOKIE_SECRET
 ```
 
-### Currently required (the backend will not start without these)
+`.env` is gitignored — never commit real credentials. Every variable is
+documented in [`.env.example`](./.env.example), which also carries a
+production checklist. `apps/api/src/lib/env.ts` validates on boot with Zod
+and exits immediately if anything required is missing (and refuses to start
+in `NODE_ENV=production` with the placeholder `SESSION_COOKIE_SECRET`).
 
-| Variable | Used for |
+| Required | Purpose |
 |---|---|
-| `MONGODB_URI` | MongoDB Atlas connection string |
-| `REDIS_URL` | Upstash Redis TCP connection URL |
-| `SESSION_COOKIE_SECRET` | Signs/verifies the staff/owner session cookie — auth is server-side Redis sessions (opaque ID, `HttpOnly` cookie), never JWT (architecture doc Section 9); auth module is not implemented yet, `auth` is a status-only skeleton |
-| `FRONTEND_URL` | CORS origin (`apps/api/src/server.ts`) for the frontend dev server. Only matters in local dev, where the frontend runs as its own Vite process on a different port than the API — under the locked production deployment (architecture doc Section 14), frontend and backend are served from one origin and no cross-origin request ever happens |
+| `MONGODB_URI` | Replica-set connection string |
+| `REDIS_URL` | Sessions, booking holds, rate limiters |
+| `SESSION_COOKIE_SECRET` | Session cookie signing — strong & unique in prod |
 
-These are validated at startup with Zod (`apps/api/src/lib/env.ts`) — the
-process exits immediately if any is missing.
+Optional: `RESEND_API_KEY` + `RESEND_FROM_EMAIL` (real email),
+`GEMINI_API_KEY` (no-show scoring), `PORT`, `FRONTEND_URL`,
+`SESSION_TTL_SECONDS`, `MAGIC_LINK_TTL_SECONDS`, `GEMINI_MODEL`.
 
-### Present in `.env.example` but not yet used by any code
+There is **no** frontend API base-URL variable: the web app calls the API
+via relative `/api/...` paths — Vite's dev proxy forwards them in dev, and
+in production one origin serves both (architecture §14).
 
-| Variable | Planned for |
-|---|---|
-| `PORT` | Optional override; defaults to `4000` if unset (not currently required) |
-| `NODE_ENV` | Not currently read by any code |
-| `SESSION_TTL_SECONDS` | Session sliding-idle-timeout duration (defaults to 604800s / 7 days per Section 9 if unset — not currently required) |
-| `GEMINI_API_KEY` | Planned AI no-show scoring (Phase 3, not implemented) |
-| `EMAIL_API_KEY` | Planned notification system (Phase 3, not implemented) |
+## Running locally
 
-**No frontend-side API base-URL variable exists.** The frontend calls the API via relative
-`/api/...` paths (`apps/web/src/lib/api.ts`), which resolve correctly in both environments:
-in production the API and the built frontend share one origin (Section 14), and in local
-dev Vite's dev-server proxy (`apps/web/vite.config.ts`) forwards `/api/*` to the backend.
-There is no `VITE_API_URL` or equivalent to configure.
-
-## Installation
-
-From the repository root:
+Three processes. From the repo root:
 
 ```bash
-npm install
+npm run dev                              # api (:4000) + web (:5173) + shared-types, in parallel
+npm run dev --workspace=@queueless/api   # API only
+npm run worker --workspace=@queueless/api  # BullMQ worker (emails, recurring jobs)
+npm run dev --workspace=web              # frontend only (proxies /api to :4000)
 ```
 
-This installs and links all workspaces (`apps/*`, `packages/*`) in one step.
+The worker is a separate process — reminder emails, weekly slot
+generation, hold-expiry and waitlist-expiry jobs only run while it's up.
 
-## Running Locally
-
-All backend routes are mounted under `/api` (e.g. `/api/auth/...`,
-`/api/tenants/...`, `/api/bookings/...`); `/health` stays unprefixed. The
-frontend calls these via relative `/api/...` paths — Vite's dev-server proxy
-(`apps/web/vite.config.ts`) forwards them to the backend, so both apps need
-to be running together locally (see below), same as they'll share one origin
-in production (Section 14 of the architecture doc).
-
-Run everything in parallel via Turborepo from the root:
+Health check:
 
 ```bash
-npm run dev
+curl http://localhost:4000/health
+# {"status":"ok","database":"connected"}   (503 "degraded" if Mongo is down)
 ```
 
-Or run a single workspace:
+## Build & deploy
 
 ```bash
-npm run dev --workspace=@queueless/api   # backend on http://localhost:4000
-npm run dev --workspace=web              # frontend on Vite's dev server
+npm run build      # turbo: tsc for api + shared-types, tsc -b && vite build for web
+npm run lint
 ```
 
-## Verification
+**Deployment is single-origin (architecture §14).** After `npm run build`,
+`apps/api` serves `apps/web/dist` for every non-`/api`, non-`/health` path
+(with SPA fallback to `index.html`), so the whole app is one process on one
+port — no CORS, no `SameSite=None`, no CSRF middleware. Run the compiled
+API with `npm run start --workspace=@queueless/api` and the worker as a
+sibling process pointed at the same Redis.
 
-With `apps/api/.env` filled in, start the API and check the logs and
-`/health` endpoint:
+Production checklist: `NODE_ENV=production`, a real
+`SESSION_COOKIE_SECRET`, replica-set Mongo, `rediss://` Redis, and the web
+build present. Behind a reverse proxy the API already trusts one hop of
+`X-Forwarded-For` for correct per-IP rate limiting.
+
+## The concurrency demo
+
+The headline guarantee — two clients, one slot, exactly one winner — is
+scripted:
 
 ```bash
-npm run dev --workspace=@queueless/api
+node scripts/concurrency-demo.mjs                       # against http://localhost:4000
+node scripts/concurrency-demo.mjs https://your-deploy   # against a deployed instance
 ```
 
-- **Backend starts** — you should see `API listening on http://localhost:<port>` in the logs.
-- **MongoDB connects** — a `"MongoDB connected"` log line appears before the
-  server starts listening; the process exits with an error if it can't connect.
-- **Redis connects** — `checkRedisConnection()` pings Redis at startup as
-  part of the same boot sequence; a connection error is logged via
-  `redis.on('error', ...)` if it fails.
-- **`/health` responds:**
+It signs up a throwaway business, generates slots, then fires N
+simultaneous `POST /api/bookings/hold` requests at one capacity-1 bucket
+and asserts exactly 1 × `201` + (N−1) × `409 SLOT_NOT_AVAILABLE`, then
+repeats on a capacity-2 bucket expecting 2 winners.
 
-  ```bash
-  curl http://localhost:4000/health
-  # {"status":"ok","database":"connected"}
-  ```
+## Architecture in one paragraph
 
-  Returns HTTP 503 with `"status":"degraded","database":"disconnected"` if
-  MongoDB is not connected. (Redis state is not currently reported by
-  `/health` — only checked at startup.)
-
-## Build
-
-```bash
-npm run build
-```
-
-Runs `turbo run build` across all workspaces (`tsc` for `@queueless/api` and
-`@queueless/shared-types`, `tsc -b && vite build` for `web`).
-
-## Architecture
-
-QueueLess++ is a **modular monolith**: a single deployable Express app
-internally organized into feature modules (`auth`, `tenants`, `bookings`,
-with `staff`, `services`, `availability`, `waitlist`, `notifications`, and
-`realtime` planned) that communicate only through exported service
-functions, never by reaching into another module's models directly. This
-keeps each module a natural service boundary without the operational cost
-of microservices at this scale.
-
-For the full schema, booking state machine, transaction strategy, Redis
-usage breakdown, queue design, and real-time architecture, see
+A **modular monolith**: one Express app, feature modules that talk only
+through each other's exported service functions (never by reaching into
+another module's Mongoose model). Correctness rests on atomic
+`findOneAndUpdate` conditional writes for single-slot transitions and
+multi-document Mongo transactions for anything spanning two (signup,
+reschedule, cancel, staff/resource/service cascades). Redis holds a TTL
+lock per in-flight checkout, fenced by a `holdVersion` token so a stale
+hold can never confirm. Every external side effect (email, realtime emit,
+AI scoring) happens strictly *after* the transaction commits. Full detail:
 [`queueless-plus-plus-architecture.md`](./queueless-plus-plus-architecture.md).
-
-## Development Phases
-
-| Phase | Focus |
-|---|---|
-| **Phase 1 — Foundations** | Multi-tenant schema, auth/RBAC, business/service/staff CRUD, deploy pipeline live from day 1 |
-| **Phase 2 — Core booking engine** | Atomic booking, Redis holds, real-time slot updates, waitlist auto-fill |
-| **Phase 3 — Reschedule, cancellation, notifications** | Transaction-based reschedule, cancellation flow, BullMQ reminder jobs, AI no-show scoring |
-| **Phase 4 — Polish & demo prep** | Concurrency/reschedule demo rehearsal, deploy hardening, README/architecture diagram |
-| **Phase 5 — Stretch (optional)** | Basic analytics |
-
-See the architecture document for full phase detail.
-
-## Current Project Status
-
-**Implemented:**
-
-- Monorepo scaffolding (npm workspaces + Turborepo) with `apps/api`,
-  `apps/web`, `packages/shared-types`
-- Express + TypeScript backend that starts, connects to MongoDB Atlas
-  (Mongoose) and Redis (ioredis), and exposes a real `/health` check
-- Environment variable loading and validation (`dotenv` + Zod)
-- Structured logging (Pino, including HTTP request logging via `pino-http`)
-- Global error-handling middleware and a reusable Zod request-validation
-  middleware
-- Modular route skeletons for `auth`, `tenants`, and `bookings`, each
-  currently exposing only a `/status` endpoint (no business logic yet)
-- React + TypeScript + Vite frontend with Tailwind configured and a basic
-  routed app shell (dashboard/admin/booking placeholder pages)
-- `packages/shared-types` building and consumed by both apps
-
-**Not yet implemented (planned per the phases above):**
-
-- Any real domain logic in `auth`, `tenants`, or `bookings` (schemas,
-  services, business rules)
-- `staff`, `services`, `availability`, `waitlist`, `notifications`, and
-  `realtime` modules
-- The booking state machine, atomic booking writes, and transaction-based
-  reschedule
-- Socket.IO real-time updates and BullMQ background jobs
-- AI no-show scoring (Gemini)
-- Frontend API client and any frontend-to-backend communication
-- shadcn/ui components (configured via `components.json`, none generated yet)
-- CI/CD and deployment

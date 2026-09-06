@@ -35,6 +35,12 @@ export const errorHandler: ErrorRequestHandler = (
   }
 
   if (err instanceof AppError) {
+    // Rate-limit responses carry a Retry-After header (architecture doc
+    // §13); safe to expose since it's returned identically regardless of
+    // whether an account exists (§9).
+    if (typeof err.retryAfter === 'number') {
+      res.setHeader('Retry-After', String(err.retryAfter));
+    }
     res.status(err.statusCode).json({
       error: {
         code: err.code,

@@ -3,6 +3,22 @@ import { Router } from 'express';
 import { authenticate } from '../auth/authenticate.js';
 import { validate } from '../../middleware/validate.js';
 import { requireAnyRole } from '../../lib/requireRole.js';
+import { rateLimit } from '../../lib/rateLimit.js';
+
+/**
+ * Per-IP limiter for the anonymous booking surface (architecture doc
+ * §13's "add rate limiting on the public booking endpoint"). Generous
+ * enough that a real customer clicking around never notices; tight
+ * enough to blunt scripted slot-scraping / hold-spamming. Fails open —
+ * anonymous booking staying available matters more than a hard Redis
+ * dependency for it.
+ */
+const publicBookingRateLimit = rateLimit({
+  keyPrefix: 'rl:bookings:public',
+  limit: 40,
+  windowSeconds: 60,
+  onRedisError: 'open',
+});
 
 import {
   createBooking,
@@ -41,18 +57,21 @@ bookingsRouter.get('/status', getBookingsStatus);
 // browser-generated sessionId in the body fences the Redis hold.
 bookingsRouter.post(
   '/hold',
+  publicBookingRateLimit,
   validate(holdCustomerBookingSchema),
   holdCustomerBookingController,
 );
 
 bookingsRouter.post(
   '/confirm',
+  publicBookingRateLimit,
   validate(confirmCustomerBookingSchema),
   confirmCustomerBookingController,
 );
 
 bookingsRouter.post(
   '/magic-link/exchange',
+  publicBookingRateLimit,
   validate(exchangeMagicLinkSchema),
   exchangeMagicLinkController,
 );

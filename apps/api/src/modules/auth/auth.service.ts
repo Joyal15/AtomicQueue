@@ -6,6 +6,7 @@ import { createBusiness, getBusinessById } from "../tenants/tenants.service.js";
 import type { Business } from "@queueless/shared-types";
 import { AppError } from "../../lib/Apperror.js";
 import {
+  assertLoginNotLocked,
   recordLoginFailure,
   recordIpLoginFailure,
   resetLoginFailures,
@@ -331,6 +332,12 @@ export async function login(
 ): Promise<LoginResult> {
   const normalizedEmail = normalizeEmail(input.email);
 
+  // Pre-flight lockout check — before any DB read or bcrypt work, so a
+  // locked-out account/IP can't be unlocked by finally submitting the
+  // right password inside the window (architecture doc §9). Redis
+  // unreachable here → throws → login fails closed (500).
+  await assertLoginNotLocked(normalizedEmail, input.ipAddress);
+
   const user = await UserModel.findOne({
     email: normalizedEmail,
   });
@@ -346,6 +353,7 @@ export async function login(
         429,
         'LOGIN_RATE_LIMITED',
         'Too many login attempts. Please try again later.',
+        15 * 60,
       );
     }
 
@@ -370,6 +378,7 @@ export async function login(
         429,
         'LOGIN_RATE_LIMITED',
         'Too many login attempts. Please try again later.',
+        15 * 60,
       );
     }
 

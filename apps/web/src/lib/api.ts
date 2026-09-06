@@ -34,6 +34,30 @@ export class ApiRequestError extends Error {
   }
 }
 
+// ── Global 401 signal ────────────────────────────────────────────────
+// A 401 anywhere means the session cookie is gone or expired. Rather
+// than have every caller re-implement "bounce to login", `apiFetch`
+// notifies these listeners and the auth provider handles it centrally
+// (architecture doc §13: on 401 clear local auth state and redirect to
+// login; on 403 stay put).
+type UnauthorizedListener = () => void
+const unauthorizedListeners = new Set<UnauthorizedListener>()
+
+export function onUnauthorized(listener: UnauthorizedListener): () => void {
+  unauthorizedListeners.add(listener)
+  return () => unauthorizedListeners.delete(listener)
+}
+
+function notifyUnauthorized(): void {
+  for (const listener of unauthorizedListeners) {
+    try {
+      listener()
+    } catch {
+      // a listener throwing must not break the fetch caller's own error path
+    }
+  }
+}
+
 function isApiErrorBody(body: unknown): body is ApiErrorBody {
   return (
     typeof body === 'object' &&
@@ -63,6 +87,9 @@ export async function apiFetch<T>(
   const body: unknown = await response.json().catch(() => null)
 
   if (!response.ok) {
+    if (response.status === 401) {
+      notifyUnauthorized()
+    }
     // An error response always carries { error: { code, message } }.
     if (isApiErrorBody(body)) {
       throw new ApiRequestError(body.error.message, response.status, body.error.code, body.error.fields)

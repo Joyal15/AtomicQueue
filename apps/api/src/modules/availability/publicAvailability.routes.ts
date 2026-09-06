@@ -11,10 +11,24 @@
 
 import { Router } from 'express';
 
+import { rateLimit } from '../../lib/rateLimit.js';
+
 import { getPublicAvailability } from './publicAvailability.controller.js';
 
 const router = Router();
 
-router.get('/businesses/:slug/availability', getPublicAvailability);
+// Public browse view — per-IP limited to blunt scripted scraping of a
+// tenant's whole schedule. Generous (a customer paging through days
+// stays well under it) and fails open.
+router.get(
+  '/businesses/:slug/availability',
+  rateLimit({
+    keyPrefix: 'rl:public:availability',
+    limit: 120,
+    windowSeconds: 60,
+    onRedisError: 'open',
+  }),
+  getPublicAvailability,
+);
 
 export default router;

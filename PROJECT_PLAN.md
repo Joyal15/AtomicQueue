@@ -193,28 +193,30 @@ This is the leftover setup work that the independence principle above depends on
 ### Phase 5 — Polish & demo prep
 **Goal:** presentable, and the pitch from architecture doc §12 is rehearsed.
 
+**Status (2026-09-07): 🟢 Code items done. Remaining: the human rehearsal steps (demo run-throughs against a live deploy).**
+
 **Peter 1 — Booking Track**
-- [ ] Re-verify RBAC checks on every `bookings`/`auth`/`waitlist` mutating route, **and** that every response is built from the allowlist projection, never a raw document — `passwordHash`, `accessTokenHash`, `holdVersion`, session identifiers must never appear in any `bookings`/`auth` response at any tier; cross-tenant or cross-customer resource access returns 404, never 403 (architecture doc §13)
-- [ ] Login rate limiting (`auth` module, architecture doc §9): independent per-account (5 failures → 15-minute lockout, reset only by that account's own success) and per-IP Redis-backed limiters, atomic increment+check+lockout as one Redis operation. Nonexistent-account logins still run `bcrypt.compare()` against a fixed dummy hash (timing-enumeration resistance). Redis unreachable → fail closed (500), not silently disabled.
-- [ ] Script two near-simultaneous booking requests against the deployed instance to confirm the double-booking demo is reliable, not lucky
+- [x] Re-verify RBAC checks on every `bookings`/`auth`/`waitlist` mutating route, **and** allowlist projection — *verified via a 76-check adversarial API harness + 11 targeted probes against live Mongo/Redis: cross-tenant staff cancel/reschedule/outcome → `404` (not 403); magic-link token/booking mismatch → `404`; `listBookings`/`getBookingForCustomer`/`toWaitlistItem` are all explicit field allowlists — no `passwordHash`/`accessTokenHash`/`holdVersion`/session id in any payload at any tier; `noShowRiskNote` omitted from the customer projection at the serialization layer. No code change needed here beyond the earlier QA pass.*
+- [x] Login rate limiting (architecture doc §9) — *built: `lib/rateLimit.ts`'s `incrementWithTtl` is a single atomic Lua INCR+EXPIRE (no check-then-increment). `auth.rateLimit.ts`: per-account 5 failures → 15-min lockout, per-IP 50/15-min, plus a new `assertLoginNotLocked()` pre-flight check run BEFORE any DB read or bcrypt work — so a locked account can't be unlocked by finally submitting the right password inside the window. Nonexistent-account path still runs `bcrypt.compare()` against the fixed dummy hash. Redis unreachable → the pre-check throws → login fails closed with a plain `500`. `429`s carry `Retry-After` (via new `AppError.retryAfter` → `errorHandler`). Verified: 5×401 then 429; correct password during lockout → 429; a different account from the same IP still logs in; Retry-After present.*
+- [x] Script two near-simultaneous booking requests — *`scripts/concurrency-demo.mjs` (no deps, `node scripts/concurrency-demo.mjs [baseUrl] [racers]`, runs against localhost or a deployed URL). Verified: 8 racers on a capacity-1 bucket → 1×201 / 7×409; capacity-2 → 2×201 / 6×409.*
 
 **Peter 3 — Platform Track**
-- [ ] Re-verify RBAC checks on every `tenants`/`staff`/`services` mutating route, **and** the same response-projection/cross-principal-404 discipline as Peter 1's bullet above, for `tenants`/`staff`/`services`/`resources` responses; add rate limiting on the public booking endpoint
-- [ ] Deploy hardening: production Mongo/Redis connection settings, env var checklist
-- [ ] Wire Express to serve the built frontend (`apps/web/dist`) from the same origin as the API (architecture doc §14) — this is the actual implementation of the same-origin deployment decision, not just config: mount the frontend's static build behind the API's `/api` prefix so both are served by one process/port. This is what makes "no CORS, no CSRF middleware for MVP" true in practice, not just on paper.
+- [x] Re-verify RBAC on `tenants`/`staff`/`services`/`resources` mutations + projection/404 discipline; **add rate limiting on the public booking endpoint** — *RBAC verified: `tenants` PATCH + all staff-lifecycle + invitation routes are `requireRole('owner')`; `services`/`resources`/`availability` mutations are owner-or-staff, matching §13a's actor column; every `tenants`/`services`/`resources`/`providers` service response goes through an explicit `toX()` allowlist mapper, never a raw doc. Rate limiting **added**: `lib/rateLimit.ts` reusable per-IP limiter (atomic, `Retry-After`, fail-open for anonymous traffic) applied to `POST /bookings/hold`, `POST /bookings/confirm`, `POST /bookings/magic-link/exchange` (40/60s combined), `POST /waitlist` (15/60s), and `GET /businesses/:slug/availability` (120/60s). Verified: 429 + Retry-After after the threshold.*
+- [x] Deploy hardening — *`db.ts`: `serverSelectionTimeoutMS`/`socketTimeoutMS`/`maxPoolSize`/`minPoolSize`/`retryWrites`/`retryReads` + disconnect/reconnect/error log listeners. `redis.ts`: `maxRetriesPerRequest: 3` (fast fail so login's fail-closed is a quick 500) + `connectTimeout` + reconnect/end logging. `env.ts`: `NODE_ENV` added to the schema; hard-fails at boot in `production` if `SESSION_COOKIE_SECRET` is still the dev placeholder or too short. `.env.example`: rewritten with a production checklist. `server.ts`: a one-line `startup configuration` log (env, email mode, no-show scoring, frontend mode).*
+- [x] Wire Express to serve the built frontend from the same origin (architecture doc §14) — *`server.ts`: when `apps/web/dist/index.html` exists, `express.static(apps/web/dist)` + an SPA fallback that serves `index.html` for any non-`/api`, non-`/health` `GET` (so deep links / hard refreshes work). Skipped cleanly with a warn log when there's no build (local dev's two-process setup). Verified: `GET /dashboard` → `index.html`, `GET /api/unknown` → JSON 404, `/health` still its own shape.*
 
 **Peter 2 (AI) — Frontend**
-- [ ] Visual polish: consistent spacing/typography, empty/loading/error states across all flows
-- [ ] Responsive check
-- [ ] Two-tab concurrency demo rehearsed against the deployed instance, not localhost
+- [x] Visual polish: empty/loading/error states across all flows — *the Phase 4 design pass already moved every page onto the shared `Skeleton`/`EmptyState`/`Alert` primitives with real loading/empty/error branches (re-verified page by page). Added this phase: central 401 handling — `apiFetch` notifies `onUnauthorized` listeners on any `401`; `AuthProvider` subscribes and, only if it currently thinks it's authenticated, drops to `unauthenticated` (clearing the cached user) so `RequireAuth` redirects to `/login` — no per-page handling, matching §13's "on 401 clear auth state and redirect; on 403 stay put".*
+- [x] Responsive check — *done in the Phase 4 design pass (responsive sidebar + mobile slide-over `DashboardLayout`, `sm:` grid breakpoints throughout, `overflow-x-auto` on wide content); `turbo run build` + `eslint` clean.*
+- [ ] Two-tab concurrency demo rehearsed against the deployed instance — *tooling provided (`scripts/concurrency-demo.mjs` takes a deploy URL); the actual rehearsal against a live deployment is a manual step.*
 
 **Peter 1 + Peter 3 (together, README only)**
-- [ ] README rewrite with real setup instructions + architecture diagram
+- [x] README rewrite with real setup instructions — *`README.md` rewritten to match the actual repo through Phase 5: what works, the 3-process local run (api / worker / web), the replica-set requirement, single-origin build/deploy, the concurrency demo. (A rendered architecture *diagram* image is still not added — the architecture doc carries the detail in prose/tables.)*
 
 **Everyone**
-- [ ] Rehearse the demo script (§12) end-to-end at least twice
+- [ ] Rehearse the demo script (§12) end-to-end at least twice — *manual.*
 
-**Exit criteria:** double-booking demo and reschedule demo both run cleanly, deployed, rehearsed.
+**Exit criteria:** double-booking demo and reschedule demo both run cleanly, deployed, rehearsed. **Code-complete; the deployed-and-rehearsed half is a manual step.**
 
 ---
 
@@ -236,5 +238,5 @@ Update checkboxes as work lands — this file is the source of truth for "what p
 | Phase 2 — Foundations (auth/tenant/staff/service) | ✅ Done — `/login` + `/accept` (incl. an `/accept` UI) both shipped and verified; signup→login→business→service→invite→accept→staff-login all pass against live Mongo/Redis | 2026-09-06 |
 | Phase 3 — Core booking engine | ✅ Done — anonymous hold/confirm built, money demo verified (3 concurrent holds on a capacity-2 bucket → 2×201, 1×409; capacity-1 → 1 win / 1 loss), live bucket updates over Socket.IO with no polling | 2026-09-06 |
 | Phase 4 — Reschedule/cancel/notifications/AI | ✅ Done — reschedule/cancel/outcome verified end-to-end; email + reminder job triggers wired; removal/retirement/deactivation cascades verified; AI no-show module present. Not built (deliberate MVP gaps): notification-status UI, one-click waitlist-claim screen. | 2026-09-06 |
-| Phase 5 — Polish & demo prep | 🟡 Partially pulled forward (design system, responsive shell). Remaining: login rate-limit lockout hardening, static-frontend-from-API serving, deploy hardening, rehearsal | — |
+| Phase 5 — Polish & demo prep | 🟢 Code-complete (2026-09-07) — login rate-limit lockout hardening (atomic, pre-flight lockout check, Retry-After, fail-closed), per-IP rate limiting on the public booking/waitlist/availability endpoints, same-origin static-frontend serving + SPA fallback, Mongo/Redis deploy hardening + env checklist + prod secret guard, central frontend 401→login handling, README rewrite, `scripts/concurrency-demo.mjs`. Remaining: manual demo rehearsal against a live deploy. | 2026-09-07 |
 | Phase 6 — Stretch | ⚪ Optional | — |

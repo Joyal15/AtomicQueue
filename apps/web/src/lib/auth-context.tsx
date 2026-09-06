@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import type { Business } from '@queueless/shared-types'
 
-import { apiFetch, ApiRequestError } from './api'
+import { apiFetch, ApiRequestError, onUnauthorized } from './api'
 import {
   AuthContext,
   type AuthState,
@@ -93,6 +93,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  // Any 401 from `apiFetch` while we think we're logged in means the
+  // session cookie expired or was invalidated (logout-everywhere, staff
+  // removal, password change). Drop to unauthenticated centrally so
+  // `RequireAuth` redirects to /login — no per-page handling needed
+  // (architecture doc §13). A 401 while loading/unauthenticated is
+  // expected (e.g. the bootstrap probe, a failed login) and ignored.
+  useEffect(() => {
+    return onUnauthorized(() => {
+      generationRef.current += 1
+      setState((prev) => {
+        if (prev.status !== 'authenticated') return prev
+        writeCachedUser(null)
+        return { status: 'unauthenticated', user: null, business: null }
+      })
+    })
+  }, [])
+
   function setSession(user: AuthUser, business: Business) {
     generationRef.current += 1
     writeCachedUser(user)
@@ -108,8 +125,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     generationRef.current += 1
 
     try {
-      // /api/auth/logout doesn't exist yet — best-effort call; local
-      // state is cleared below regardless of the outcome.
+      // Best-effort: deletes the server-side Redis session. Local state
+      // is cleared below regardless of the outcome (already-dead session,
+      // network blip).
       await apiFetch('/auth/logout', { method: 'POST' })
     } catch {
       // ignore

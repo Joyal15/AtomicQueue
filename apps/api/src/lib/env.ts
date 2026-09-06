@@ -3,6 +3,9 @@ import { z } from "zod";
 
 
 const envSchema = z.object({
+  NODE_ENV: z
+    .enum(["development", "test", "production"])
+    .default("development"),
   MONGODB_URI: z.string().min(1, 'MONGODB_URI is required'),
   REDIS_URL: z.string().min(1, 'REDIS_URL is required'),
   PORT: z.coerce.number().int().positive().default(4000),
@@ -31,3 +34,21 @@ if (!result.success) {
 }
 
 export const env = result.data;
+
+/**
+ * A hard-fail-worthy misconfiguration that only bites in production —
+ * kept out of the schema so local dev stays zero-config, enforced here
+ * where `NODE_ENV` is known. `SESSION_COOKIE_SECRET` shipping as the
+ * committed dev placeholder in prod would let anyone forge a cookie
+ * signature.
+ */
+if (
+  env.NODE_ENV === "production" &&
+  (env.SESSION_COOKIE_SECRET === "dev-session-secret-change-me" ||
+    env.SESSION_COOKIE_SECRET.length < 16)
+) {
+  console.error(
+    "SESSION_COOKIE_SECRET must be set to a strong, unique value in production.",
+  );
+  process.exit(1);
+}
