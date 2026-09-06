@@ -2,7 +2,9 @@ import { createHash, randomBytes } from 'node:crypto';
 import mongoose, { type ClientSession } from 'mongoose';
 import { AppError } from '../../lib/Apperror.js';
 
+import { logger } from '../../lib/logger.js';
 import { redis } from '../../lib/redis.js';
+import { enqueueNoShowScoring } from '../noshow/index.js';
 import {
   claimSlot,
   confirmAvailableSlot,
@@ -419,6 +421,19 @@ export async function confirmBooking(
       // Best effort. Never turn a committed booking into an error.
     }
 
+    /*
+     * No-show risk scoring (architecture doc §10) — enqueued strictly
+     * after commit, fire-and-forget. The confirm response never waits
+     * on Gemini, and a failure to enqueue never fails a committed
+     * booking.
+     */
+    void enqueueNoShowScoring(bookingId).catch((error: unknown) => {
+      logger.warn(
+        { err: error, bookingId },
+        'failed to enqueue no-show scoring',
+      );
+    });
+
     return {
       bookingId,
       accessToken: rawAccessToken,
@@ -479,8 +494,22 @@ export async function createWalkInBooking(
     cancelledAt: null,
   });
 
+  const bookingId = String(booking._id);
+
+  /*
+   * A walk-in is a confirmed Booking too, so it gets scored the same
+   * way (architecture doc §10: "customer self-service and staff/owner
+   * walk-ins alike"). Fire-and-forget, after the write.
+   */
+  void enqueueNoShowScoring(bookingId).catch((error: unknown) => {
+    logger.warn(
+      { err: error, bookingId },
+      'failed to enqueue no-show scoring',
+    );
+  });
+
   return {
-    bookingId: String(booking._id),
+    bookingId,
   };
 }
 
@@ -881,7 +910,11 @@ export async function listBookings(
 export async function getBookingForCustomer(
   bookingId: string,
 ): Promise<{
-  booking: BookingListItem;
+  // Customer/magic-link projection — `noShowRiskNote` is staff/owner-
+  // only and must never appear in a customer response payload, at the
+  // serialization layer, not just the frontend (architecture doc
+  // §10/§13).
+  booking: Omit<BookingListItem, 'noShowRiskNote'>;
   slot: Awaited<ReturnType<typeof getSlotById>>;
 }> {
   const booking = await BookingModel.findById(bookingId).lean();
@@ -921,10 +954,147 @@ export async function getBookingForCustomer(
       status: booking.status,
       accessTokenExpiresAt:
         booking.accessTokenExpiresAt?.toISOString() ?? null,
-      noShowRiskNote: booking.noShowRiskNote,
+      // noShowRiskNote deliberately omitted — customer-tier projection.
       createdAt: booking.createdAt.toISOString(),
       cancelledAt: booking.cancelledAt?.toISOString() ?? null,
     },
     slot,
   };
+}
+
+export interface BookingScoringContext {
+  businessId: string;
+  slotId: string;
+  customer: {
+    name: string;
+    contactType: ContactType;
+    contact: string;
+  };
+  createdAt: Date;
+  noShowRiskNote: string | null;
+}
+
+/**
+ * Minimal booking projection the no-show scoring job (architecture doc
+ * §10) needs. Lives here so the `noshow` module never touches
+ * `BookingModel` directly — it orchestrates and calls Gemini; this
+ * module owns every read and write of the collection.
+ */
+export async function getBookingScoringContext(
+  bookingId: string,
+): Promise<BookingScoringContext | null> {
+  if (!mongoose.Types.ObjectId.isValid(bookingId)) {
+    return null;
+  }
+
+  const booking = await BookingModel.findById(bookingId)
+    .select({
+      businessId: 1,
+      slotId: 1,
+      customer: 1,
+      createdAt: 1,
+      noShowRiskNote: 1,
+    })
+    .lean();
+
+  if (!booking) {
+    return null;
+  }
+
+  return {
+    businessId: booking.businessId,
+    slotId: booking.slotId,
+    customer: {
+      name: booking.customer.name,
+      contactType: booking.customer.contactType,
+      contact: booking.customer.contact,
+    },
+    createdAt: booking.createdAt,
+    noShowRiskNote: booking.noShowRiskNote,
+  };
+}
+
+export interface CustomerBookingStats {
+  totalPast: number;
+  confirmedCount: number;
+  completedCount: number;
+  cancelledCount: number;
+  noShowCount: number;
+}
+
+/**
+ * Aggregated booking history for "the same customer" — matched by
+ * `customer.contact` within a single `businessId` only (architecture
+ * doc §10: no cross-tenant identity resolution). `excludeBookingId`
+ * drops the booking currently being scored from its own history.
+ */
+export async function getCustomerBookingStats(
+  businessId: string,
+  contactType: ContactType,
+  contact: string,
+  excludeBookingId?: string,
+): Promise<CustomerBookingStats> {
+  const match: Record<string, unknown> = {
+    businessId,
+    'customer.contact': normalizeContact(contactType, contact),
+  };
+
+  if (
+    excludeBookingId &&
+    mongoose.Types.ObjectId.isValid(excludeBookingId)
+  ) {
+    match._id = { $ne: new mongoose.Types.ObjectId(excludeBookingId) };
+  }
+
+  const rows = await BookingModel.aggregate<{
+    _id: string;
+    count: number;
+  }>([
+    { $match: match },
+    { $group: { _id: '$status', count: { $sum: 1 } } },
+  ]);
+
+  const byStatus = new Map(rows.map((row) => [row._id, row.count]));
+
+  const confirmedCount = byStatus.get('confirmed') ?? 0;
+  const completedCount = byStatus.get('completed') ?? 0;
+  const cancelledCount = byStatus.get('cancelled') ?? 0;
+  const noShowCount = byStatus.get('no-show') ?? 0;
+
+  return {
+    totalPast:
+      confirmedCount + completedCount + cancelledCount + noShowCount,
+    confirmedCount,
+    completedCount,
+    cancelledCount,
+    noShowCount,
+  };
+}
+
+/**
+ * Compute-once conditional write for the no-show risk note
+ * (architecture doc §10). Filtered on `noShowRiskNote: null`, never an
+ * unconditional `$set`, so a duplicated/retried scoring job is a safe
+ * no-op. Returns whether this call is the one that landed the note. No
+ * `Booking.status` re-check: writing this field has no externally-
+ * visible effect, so "written at most once" is the only invariant to
+ * protect.
+ */
+export async function persistNoShowRiskNote(
+  bookingId: string,
+  note: string,
+): Promise<boolean> {
+  if (!mongoose.Types.ObjectId.isValid(bookingId)) {
+    return false;
+  }
+
+  const updated = await BookingModel.findOneAndUpdate(
+    { _id: bookingId, noShowRiskNote: null },
+    { $set: { noShowRiskNote: note } },
+    { new: false },
+  )
+    .select({ _id: 1 })
+    .lean();
+
+  return updated !== null;
 }

@@ -11,6 +11,7 @@ import {
   releaseHeldSlot,
 } from './modules/slots/index.js';
 import { sendEmail, type SendEmailInput } from './modules/notifications/index.js';
+import { runNoShowScoringJob } from './modules/noshow/index.js';
 
 /**
  * Standalone worker process — separate from the API server (`server.ts`)
@@ -24,6 +25,8 @@ const WAITLIST_EXPIRE_CHECK_JOB = 'waitlist-expire-check';
 const PROCESS_HOLD_EXPIRY_JOB = 'process-hold-expiry';
 const SEND_TRANSACTIONAL_EMAIL_JOB = 'send-transactional-email';
 const SEND_REMINDER_EMAIL_JOB = 'send-reminder-email';
+/** Same literal `noshow.service.ts` enqueues onto (architecture doc §10). */
+const SCORE_NO_SHOW_RISK_JOB = 'score-no-show-risk';
 
 /**
  * Tops up every business's rolling slot-generation window (architecture
@@ -145,6 +148,20 @@ async function processJob(
       }
 
       await expireWaitlistEntry(entryId);
+      break;
+    }
+
+    case SCORE_NO_SHOW_RISK_JOB: {
+      const bookingId = data.bookingId;
+
+      if (typeof bookingId !== 'string' || !bookingId) {
+        throw new Error('score-no-show-risk requires bookingId');
+      }
+
+      // Self-contained: the handler swallows its own domain failures
+      // (Gemini down, booking gone) so this never surfaces as a failed
+      // job — AI is never load-bearing (architecture doc §10).
+      await runNoShowScoringJob(bookingId);
       break;
     }
 

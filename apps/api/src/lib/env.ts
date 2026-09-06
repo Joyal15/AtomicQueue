@@ -15,6 +15,11 @@ const envSchema = z.object({
   // sender (see notifications.service.ts) instead of failing startup.
   RESEND_API_KEY: z.string().min(1).optional(),
   RESEND_FROM_EMAIL: z.email().optional(),
+  // AI no-show scoring (architecture doc §10). Optional: unset means
+  // the scoring job silently no-ops and `Booking.noShowRiskNote` stays
+  // null — AI is never load-bearing here.
+  GEMINI_API_KEY: z.string().min(1).optional(),
+  GEMINI_MODEL: z.string().min(1).default('gemini-1.5-flash'),
 });
 
 const result = envSchema.safeParse(process.env);
