@@ -254,12 +254,12 @@ function RescheduleDialog({
 
   useEffect(() => {
     if (!open || !slot || !slug) return
-    setBuckets(null)
-    setDatetime('')
-    setError(null)
-    setLoadError(null)
 
     async function load(currentSlug: string, s: NonNullable<ManagedBooking['slot']>) {
+      setBuckets(null)
+      setDatetime('')
+      setError(null)
+      setLoadError(null)
       try {
         const params = new URLSearchParams({
           serviceId: s.serviceId,

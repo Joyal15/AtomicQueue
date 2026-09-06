@@ -1,10 +1,5 @@
-import { useEffect, useState } from 'react'
-import {
-  NavLink,
-  Outlet,
-  useLocation,
-  useNavigate,
-} from 'react-router-dom'
+import { useState } from 'react'
+import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
   CalendarRange,
   ClipboardList,
@@ -90,13 +85,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
 export function DashboardLayout() {
   const { business, user, signOut } = useAuth()
   const navigate = useNavigate()
-  const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
-
-  // Close the mobile drawer whenever the route changes.
-  useEffect(() => {
-    setMobileOpen(false)
-  }, [location.pathname])
 
   async function handleSignOut() {
     await signOut()

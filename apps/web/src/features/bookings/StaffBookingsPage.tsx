@@ -76,8 +76,12 @@ export function StaffBookingsPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [rescheduleFor, setRescheduleFor] = useState<Row | null>(null)
   const [cancelFor, setCancelFor] = useState<Row | null>(null)
+  // Snapshot of "now" for the upcoming/past split — refreshed on every
+  // load (mount + socket-triggered refetch), never read during render.
+  const [now, setNow] = useState<number>(() => Date.now())
 
   async function load() {
+    setNow(Date.now())
     try {
       const [bookingsData, slotsData, providersData, servicesData] =
         await Promise.all([
@@ -116,7 +120,6 @@ export function StaffBookingsPage() {
   })
 
   const { upcoming, past } = useMemo(() => {
-    const now = Date.now()
     const rows: Row[] = (bookings ?? []).map((booking) => {
       const slot = slotsById.get(booking.slotId) ?? null
       const provider = slot
@@ -149,7 +152,7 @@ export function StaffBookingsPage() {
             new Date(a.slot?.datetime ?? a.booking.createdAt).getTime(),
         ),
     }
-  }, [bookings, slotsById, providersById, serviceNames])
+  }, [bookings, slotsById, providersById, serviceNames, now])
 
   async function markOutcome(row: Row, status: 'completed' | 'no-show') {
     try {
@@ -475,12 +478,12 @@ function RescheduleDialog({
 
   useEffect(() => {
     if (!row || !slot) return
-    setSlots(null)
-    setDatetime('')
-    setError(null)
-    setSlotsError(null)
 
     async function loadSlots(current: Slot) {
+      setSlots(null)
+      setDatetime('')
+      setError(null)
+      setSlotsError(null)
       try {
         const params = new URLSearchParams({
           status: 'available',
