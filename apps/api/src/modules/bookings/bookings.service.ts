@@ -2,10 +2,15 @@ import { createHash, randomBytes } from 'node:crypto';
 import mongoose, { type ClientSession } from 'mongoose';
 import { AppError } from '../../lib/Apperror.js';
 
+import { env } from '../../lib/env.js';
 import { logger } from '../../lib/logger.js';
 import { redis } from '../../lib/redis.js';
 import { getBusinessById } from '../tenants/index.js';
 import { enqueueNoShowScoring } from '../noshow/index.js';
+import {
+  enqueueReminderEmail,
+  enqueueTransactionalEmail,
+} from '../notifications/index.js';
 import {
   claimSlot,
   confirmAvailableSlot,
@@ -15,13 +20,99 @@ import {
   rescheduleConfirmedSlots,
   emitBookingConfirmationUpdate,
   getSlotById,
+  listHeldSlotsForBucket,
 } from '../slots/index.js';
 import { notifyNextWaitlistEntry } from '../waitlist/index.js';
 
 import { BookingModel } from './bookings.model.js';
 
 const HOLD_TTL_SECONDS = 300;
-const ACCESS_TOKEN_TTL_MS = 60 * 60 * 1000;
+/**
+ * The magic-link credential's own lifetime — a fixed application
+ * constant (architecture doc §9a), NOT `Business.cancellationCutoffMinutes`.
+ * Anchored to the appointment's datetime, never booking-creation time, so
+ * a link for a far-future appointment doesn't expire before it happens;
+ * recomputed against the new slot on reschedule.
+ */
+const ACCESS_TOKEN_TTL_DAYS = 7;
+
+function computeAccessTokenExpiry(datetime: Date | string): Date {
+  return new Date(
+    new Date(datetime).getTime() + ACCESS_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000,
+  );
+}
+
+const REMINDER_OFFSETS_MS = [24 * 60 * 60 * 1000, 60 * 60 * 1000];
+
+/**
+ * Renders and enqueues the customer-facing emails for a booking event
+ * (architecture doc §6/§8). Strictly post-commit, best-effort — never
+ * throws into the caller, since a failed enqueue never affects booking
+ * correctness. Skipped entirely for a contact with no email on file
+ * (§9a's no-email boundary).
+ */
+function enqueueBookingEmails(params: {
+  kind: 'confirmation' | 'cancellation' | 'reschedule';
+  contactType: ContactType;
+  contact: string;
+  bookingId: string;
+  accessToken?: string;
+  slotDatetime?: Date | string;
+}): void {
+  if (params.contactType !== 'email') return;
+
+  const manageUrl = params.accessToken
+    ? `${env.FRONTEND_URL}/manage?bookingId=${params.bookingId}&token=${params.accessToken}`
+    : `${env.FRONTEND_URL}/manage`;
+
+  const when = params.slotDatetime
+    ? new Date(params.slotDatetime).toLocaleString('en-US', { timeZone: 'UTC' })
+    : null;
+
+  const subject =
+    params.kind === 'confirmation'
+      ? 'Your booking is confirmed'
+      : params.kind === 'cancellation'
+        ? 'Your booking was cancelled'
+        : 'Your booking was rescheduled';
+
+  const body =
+    params.kind === 'cancellation'
+      ? `Your booking has been cancelled.`
+      : `${when ? `Your appointment: ${when} (UTC).\n\n` : ''}Manage this booking: ${manageUrl}`;
+
+  void enqueueTransactionalEmail({ to: params.contact, subject, text: body }).catch(
+    (error: unknown) => {
+      logger.warn(
+        { err: error, bookingId: params.bookingId },
+        'failed to enqueue booking email',
+      );
+    },
+  );
+
+  // Reminders only make sense for a booking that still has a future
+  // appointment — i.e. confirmation / reschedule, not cancellation.
+  if (params.kind !== 'cancellation' && params.slotDatetime) {
+    const appointment = new Date(params.slotDatetime).getTime();
+    for (const offset of REMINDER_OFFSETS_MS) {
+      const sendAt = new Date(appointment - offset);
+      if (sendAt.getTime() <= Date.now()) continue; // window already passed
+      void enqueueReminderEmail(
+        {
+          to: params.contact,
+          subject: 'Appointment reminder',
+          text: `Reminder: your appointment is coming up.\n\nManage it: ${manageUrl}`,
+        },
+        sendAt,
+      ).catch((error: unknown) => {
+        logger.warn(
+          { err: error, bookingId: params.bookingId },
+          'failed to enqueue reminder email',
+        );
+      });
+    }
+  }
+}
 
 type ProviderType = 'staff' | 'resource';
 type ContactType = 'email' | 'phone';
@@ -304,56 +395,35 @@ async function claimAndHold(
 }
 
 /**
- * Confirms a customer booking.
+ * Given a slot this caller has already claimed + holds (Mongo `held`,
+ * Redis `hold:` key with a matching `sessionId`), runs the confirmation:
+ * the `held → confirmed` fencing write and the `Booking` insert in one
+ * Mongo transaction (§4), then every external side effect strictly
+ * post-commit (§4e) — realtime emit, Redis hold cleanup, no-show scoring
+ * (§10), and the confirmation + reminder emails (§6/§8).
  *
- * External Redis operations happen outside the Mongo transaction.
- * The Mongo transaction only contains Mongo writes.
+ * Shared by the authenticated `confirmBooking` and the anonymous
+ * `confirmCustomerBooking` so there is exactly one confirmation code
+ * path, never a parallel "customer path" through the state machine.
  */
-export async function confirmBooking(
+async function finalizeConfirmation(
+  slotId: string,
+  holdVersion: string,
   input: ConfirmBookingInput,
   dependencies: BookingServiceDependencies = {},
 ): Promise<ConfirmBookingResult> {
-  const { slotId, holdVersion } = await claimAndHold(input);
-
-  /*
-   * Verify the Redis hold before entering the transaction.
-   *
-   * This is deliberately NOT performed inside the Mongo transaction.
-   */
-  const hold = await readRedisHold(slotId);
-
-  if (
-    !hold ||
-    hold.sessionId !== input.sessionId ||
-    hold.holdVersion !== holdVersion
-  ) {
-    throw new AppError(
-      409,
-      'SLOT_HOLD_EXPIRED',
-      'The slot hold has expired. Please select the slot again.',
-    );
-  }
-
   const rawAccessToken = randomBytes(32).toString('base64url');
   const accessTokenHash = hashAccessToken(rawAccessToken);
-  const accessTokenExpiresAt = new Date(
-    Date.now() + ACCESS_TOKEN_TTL_MS,
-  );
+  const accessTokenExpiresAt = computeAccessTokenExpiry(input.datetime);
 
   const session =
-    dependencies.mongoSession ??
-    await mongoose.startSession();
-
+    dependencies.mongoSession ?? (await mongoose.startSession());
   const ownsSession = !dependencies.mongoSession;
 
   try {
     let bookingId = '';
 
     await session.withTransaction(async () => {
-      /*
-       * Slots owns SlotModel. Booking only calls the exported service
-       * function and supplies the transaction session.
-       */
       const confirmed = await confirmHeldSlot(
         slotId,
         input.businessId,
@@ -396,10 +466,7 @@ export async function confirmBooking(
       bookingId = String(booking[0]._id);
     });
 
-
-    /*
-     * Mongo committed successfully.
-     */
+    // ---- strictly post-commit (§4e) ----
     await emitBookingConfirmationUpdate(
       input.businessId,
       input.providerId,
@@ -407,27 +474,13 @@ export async function confirmBooking(
       input.serviceId,
       input.datetime,
     );
-    /*
-     * Redis is now only cleanup. If this fails, the TTL will eventually
-     * remove the hold, and the booking remains valid.
-     */
-    
+
     try {
-      await deleteRedisHold(
-        slotId,
-        input.sessionId,
-        holdVersion,
-      );
+      await deleteRedisHold(slotId, input.sessionId, holdVersion);
     } catch {
-      // Best effort. Never turn a committed booking into an error.
+      // Best effort — the Redis TTL removes it anyway.
     }
 
-    /*
-     * No-show risk scoring (architecture doc §10) — enqueued strictly
-     * after commit, fire-and-forget. The confirm response never waits
-     * on Gemini, and a failure to enqueue never fails a committed
-     * booking.
-     */
     void enqueueNoShowScoring(bookingId).catch((error: unknown) => {
       logger.warn(
         { err: error, bookingId },
@@ -435,15 +488,140 @@ export async function confirmBooking(
       );
     });
 
-    return {
+    enqueueBookingEmails({
+      kind: 'confirmation',
+      contactType: input.customer.contactType,
+      contact: normalizeContact(
+        input.customer.contactType,
+        input.customer.contact,
+      ),
       bookingId,
       accessToken: rawAccessToken,
-    };
+      slotDatetime: input.datetime,
+    });
+
+    return { bookingId, accessToken: rawAccessToken };
   } finally {
     if (ownsSession) {
       await session.endSession();
     }
   }
+}
+
+/**
+ * Confirms a booking in one call — claim + Redis hold + confirm. Used by
+ * the authenticated staff/self-service path. External Redis operations
+ * happen outside the Mongo transaction.
+ */
+export async function confirmBooking(
+  input: ConfirmBookingInput,
+  dependencies: BookingServiceDependencies = {},
+): Promise<ConfirmBookingResult> {
+  const { slotId, holdVersion } = await claimAndHold(input);
+
+  // Verify the Redis hold (authorization) before the transaction (§4).
+  const hold = await readRedisHold(slotId);
+
+  if (
+    !hold ||
+    hold.sessionId !== input.sessionId ||
+    hold.holdVersion !== holdVersion
+  ) {
+    throw new AppError(
+      409,
+      'SLOT_HOLD_EXPIRED',
+      'The slot hold has expired. Please select the slot again.',
+    );
+  }
+
+  return finalizeConfirmation(slotId, holdVersion, input, dependencies);
+}
+
+export interface HoldSlotForCustomerInput {
+  businessId: string;
+  providerId: string;
+  providerType: ProviderType;
+  serviceId: string;
+  datetime: Date | string;
+  sessionId: string;
+}
+
+export interface HoldSlotForCustomerResult {
+  /** ISO timestamp the Redis hold expires at — drives the client countdown. */
+  heldUntil: string;
+}
+
+/**
+ * Anonymous customer step 1 (architecture doc §13a `POST /api/bookings/hold`):
+ * atomically claims one available unit for the (provider, datetime,
+ * service) bucket and pairs it with a Redis TTL hold fenced to this
+ * browser's `sessionId`. Returns only when a customer has a real hold —
+ * `claimAndHold` throws `409 SLOT_NOT_AVAILABLE` otherwise, which the
+ * caller surfaces as "offer the waitlist".
+ */
+export async function holdSlotForCustomer(
+  input: HoldSlotForCustomerInput,
+): Promise<HoldSlotForCustomerResult> {
+  await claimAndHold({
+    ...input,
+    // claimAndHold only reads the slot-identifying tuple + sessionId.
+    customer: { name: '', contactType: 'email', contact: '' },
+    createdBy: null,
+  });
+
+  return {
+    heldUntil: new Date(Date.now() + HOLD_TTL_SECONDS * 1000).toISOString(),
+  };
+}
+
+export interface ConfirmCustomerBookingInput {
+  businessId: string;
+  providerId: string;
+  providerType: ProviderType;
+  serviceId: string;
+  datetime: Date | string;
+  sessionId: string;
+  customer: {
+    name: string;
+    contactType: ContactType;
+    contact: string;
+  };
+}
+
+/**
+ * Anonymous customer step 2 (architecture doc §13a `POST /api/bookings/confirm`):
+ * finds the `held` slot in this (provider, datetime, service) bucket
+ * whose Redis hold belongs to this `sessionId`, then runs the shared
+ * `finalizeConfirmation`. The client never knows a `slotId` (§4b), so
+ * the held slot is re-resolved here from the tuple + the fenced Redis
+ * hold rather than trusted from the request.
+ */
+export async function confirmCustomerBooking(
+  input: ConfirmCustomerBookingInput,
+): Promise<ConfirmBookingResult> {
+  const heldSlots = await listHeldSlotsForBucket(
+    input.businessId,
+    input.providerId,
+    input.providerType,
+    input.serviceId,
+    input.datetime,
+  );
+
+  for (const heldSlot of heldSlots) {
+    const hold = await readRedisHold(heldSlot.slotId);
+    if (hold && hold.sessionId === input.sessionId) {
+      return finalizeConfirmation(heldSlot.slotId, hold.holdVersion, {
+        ...input,
+        createdBy: null,
+      });
+    }
+  }
+
+  throw new AppError(
+    409,
+    'SLOT_HOLD_EXPIRED',
+    'Your hold on this slot has expired. Please pick a time again.',
+  );
 }
 
 
@@ -539,14 +717,12 @@ export async function cancelBooking(
   const ownsSession = !dependencies.mongoSession;
 
   try {
-    let cancelledSlotId = '';
-
-    await session.withTransaction(async () => {
+    const tx = await session.withTransaction(async () => {
     const existingBooking = await BookingModel.findOne({
       _id: bookingId,
       businessId,
     })
-      .select({ _id: 1, slotId: 1, status: 1 })
+      .select({ _id: 1, slotId: 1, status: 1, customer: 1 })
       .session(session)
       .lean();
 
@@ -608,8 +784,17 @@ export async function cancelBooking(
       );
     }
 
-    cancelledSlotId = String(booking.slotId);
+    return {
+      slotId: String(booking.slotId),
+      customer: {
+        contactType: existingBooking.customer.contactType,
+        contact: existingBooking.customer.contact,
+      },
+    };
     });
+
+    const cancelledSlotId = tx.slotId;
+    const cancelledCustomer = tx.customer;
 
     /*
      * Mongo committed successfully.
@@ -638,6 +823,14 @@ export async function cancelBooking(
       businessId,
       cancelledSlotId,
     );
+
+    // Cancellation email (§6/§8) — post-commit, best-effort.
+    enqueueBookingEmails({
+      kind: 'cancellation',
+      contactType: cancelledCustomer.contactType,
+      contact: cancelledCustomer.contact,
+      bookingId,
+    });
 
     return {
       bookingId,
@@ -753,12 +946,16 @@ export async function rescheduleBooking(
 
   try {
     const result = await session.withTransaction(
-  async (): Promise<RescheduleBookingResult> => {
+  async (): Promise<
+    RescheduleBookingResult & {
+      customer: { contactType: ContactType; contact: string };
+    }
+  > => {
     const booking = await BookingModel.findOne({
       _id: input.bookingId,
       businessId: input.businessId,
     })
-      .select({ _id: 1, slotId: 1, status: 1 })
+      .select({ _id: 1, slotId: 1, status: 1, customer: 1, accessTokenHash: 1 })
       .session(session)
       .lean();
 
@@ -798,6 +995,17 @@ export async function rescheduleBooking(
       );
     }
 
+    // §9a: the magic-link expiry is anchored to the appointment, so it
+    // moves with the booking — recomputed against the new slot here.
+    const bookingUpdate: Record<string, unknown> = {
+      slotId: slotResult.newSlotId,
+    };
+    if (booking.accessTokenHash) {
+      bookingUpdate.accessTokenExpiresAt = computeAccessTokenExpiry(
+        slotResult.newDatetime,
+      );
+    }
+
     const updatedBooking = await BookingModel.findOneAndUpdate(
       {
         _id: input.bookingId,
@@ -806,9 +1014,7 @@ export async function rescheduleBooking(
         slotId: booking.slotId,
       },
       {
-        $set: {
-          slotId: slotResult.newSlotId,
-        },
+        $set: bookingUpdate,
       },
       {
         session,
@@ -831,9 +1037,15 @@ export async function rescheduleBooking(
       oldSlotId,
       newSlotId: slotResult.newSlotId,
       datetime: slotResult.newDatetime.toISOString(),
+      customer: {
+        contactType: booking.customer.contactType,
+        contact: booking.customer.contact,
+      },
     };
   },
 );
+
+    const rescheduledCustomer = result.customer;
 
     /*
      * Mongo committed. Realtime updates happen only now.
@@ -869,7 +1081,23 @@ export async function rescheduleBooking(
       result.oldSlotId,
     );
 
-    return result;
+    // Reschedule email + refreshed reminders (§6/§8) — post-commit.
+    enqueueBookingEmails({
+      kind: 'reschedule',
+      contactType: rescheduledCustomer.contactType,
+      contact: rescheduledCustomer.contact,
+      bookingId: result.bookingId,
+      slotDatetime: result.datetime,
+    });
+
+    // Strip the internal `customer` field — responses are an explicit
+    // allowlist (§13), never a passthrough of the service's own shape.
+    return {
+      bookingId: result.bookingId,
+      oldSlotId: result.oldSlotId,
+      newSlotId: result.newSlotId,
+      datetime: result.datetime,
+    };
 
   } finally {
 

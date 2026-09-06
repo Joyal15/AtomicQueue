@@ -144,6 +144,22 @@ async function isTemplateStillGenerable(
   return service !== null && service.isActive;
 }
 
+/**
+ * Belt-and-suspenders check that a service is still active, run on the
+ * claim / walk-in / reschedule paths (architecture doc §2c: "the claim
+ * path both defensively re-check Services.isActive, not just at
+ * deactivation time"). Deactivation already blocks a service's
+ * `available` slots, so this only ever bites the narrow
+ * generation-vs-deactivation race window.
+ */
+async function isServiceActive(
+  businessId: string,
+  serviceId: string,
+): Promise<boolean> {
+  const service = await getServiceById(businessId, serviceId);
+  return service !== null && service.isActive;
+}
+
 /** Resource capacity is 1..N; a staff provider always has exactly 1 unit. */
 async function resolveCapacity(
   businessId: string,
@@ -590,6 +606,48 @@ export async function listHeldSlots(businessId: string): Promise<HeldSlot[]> {
     .map((slot) => ({ id: String(slot._id), holdVersion: slot.holdVersion }));
 }
 
+/**
+ * Lists the `held` slots in one (businessId, providerId, providerType,
+ * serviceId, datetime) bucket, with each one's fencing token. The
+ * anonymous confirm path (`bookings` module) uses this to find which
+ * held unit in a capacity-N bucket belongs to a given browser session
+ * — the client never knows a `slotId` (§4b), so it can't tell the
+ * server which one to confirm.
+ */
+export async function listHeldSlotsForBucket(
+  businessId: string,
+  providerId: string,
+  providerType: ProviderType,
+  serviceId: string,
+  datetime: Date | string,
+): Promise<{ slotId: string; holdVersion: string }[]> {
+  const parsedDatetime = new Date(datetime);
+  if (Number.isNaN(parsedDatetime.getTime())) {
+    return [];
+  }
+
+  const slots = await SlotModel.find({
+    businessId,
+    providerId,
+    providerType,
+    serviceId,
+    datetime: parsedDatetime,
+    status: 'held',
+  })
+    .select({ _id: 1, holdVersion: 1 })
+    .lean();
+
+  return slots
+    .filter(
+      (slot): slot is typeof slot & { holdVersion: string } =>
+        typeof slot.holdVersion === 'string',
+    )
+    .map((slot) => ({
+      slotId: String(slot._id),
+      holdVersion: slot.holdVersion,
+    }));
+}
+
 export interface BulkSlotTransitionResult {
   /** Every slot this run actually changed, for the caller's post-commit realtime emit. */
   affected: { slotId: string; status: SlotStatus }[];
@@ -849,6 +907,12 @@ export async function confirmAvailableSlot(
     return null;
   }
 
+  // §2c: reject a booking against an inactive service even if a stale
+  // 'available' slot for it somehow exists.
+  if (!(await isServiceActive(businessId, serviceId))) {
+    return null;
+  }
+
   const slot = await SlotModel.findOneAndUpdate(
     {
       businessId,
@@ -941,6 +1005,12 @@ export async function claimSlot(
   const parsedDatetime = new Date(datetime);
 
   if (Number.isNaN(parsedDatetime.getTime())) {
+    return { ok: false, error: 'SLOT_NOT_AVAILABLE' };
+  }
+
+  // §2c: never let a claim land on a slot for a service that's been
+  // turned off (the narrow generation-vs-deactivation race).
+  if (!(await isServiceActive(businessId, serviceId))) {
     return { ok: false, error: 'SLOT_NOT_AVAILABLE' };
   }
 
@@ -1135,13 +1205,28 @@ export async function rescheduleConfirmedSlots(
   }
 
   /*
+   * §3/§4: a reschedule keeps the ORIGINAL service — `serviceId` is read
+   * from the booking's own slot, never trusted from caller input (which
+   * could otherwise silently switch the customer onto a different
+   * service). The caller's `serviceId` param is accepted for signature
+   * stability but not used for identity here.
+   */
+  const targetServiceId = String(oldSlot.serviceId);
+  void serviceId;
+
+  // §2c: don't let a reschedule land on a slot for a now-inactive
+  // service (no new bookable capacity from an inactive service).
+  if (!(await isServiceActive(businessId, targetServiceId))) {
+    return null;
+  }
+
+  /*
    * Do not allow a no-op reschedule. More importantly, don't release
    * the currently confirmed slot and then accidentally reclaim it.
    */
   if (
     String(oldSlot.providerId) === providerId &&
     oldSlot.providerType === providerType &&
-    String(oldSlot.serviceId) === serviceId &&
     oldSlot.datetime.getTime() === parsedDatetime.getTime()
   ) {
     return null;
@@ -1152,7 +1237,7 @@ export async function rescheduleConfirmedSlots(
       businessId,
       providerId,
       providerType,
-      serviceId,
+      serviceId: targetServiceId,
       datetime: parsedDatetime,
       status: 'available',
     },
