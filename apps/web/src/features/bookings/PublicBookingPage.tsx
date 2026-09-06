@@ -490,12 +490,23 @@ function BookingDialog({
   const [contact, setContact] = useState('')
 
   // Step 1: place the hold on open.
+  //
+  // Aborts the in-flight request on cleanup (not just a `cancelled` flag
+  // guarding the state update) so React 19 Strict Mode's dev-only double
+  // mount+cleanup+remount can't fire this real, side-effecting POST
+  // twice — the first mount's request is cancelled client-side before
+  // the server ever claims the slot, so only the second (real) mount's
+  // hold goes through. Without this, the two hold attempts would race
+  // each other for the same slot under the same sessionId and the
+  // second would always lose, showing "slot full" to the very first
+  // customer to click it.
   useEffect(() => {
-    let cancelled = false
+    const controller = new AbortController()
     async function hold() {
       try {
         const res = await apiFetch<{ heldUntil: string }>('/bookings/hold', {
           method: 'POST',
+          signal: controller.signal,
           body: JSON.stringify({
             slug,
             providerId: bucket.providerId,
@@ -505,11 +516,10 @@ function BookingDialog({
             sessionId,
           }),
         })
-        if (cancelled) return
         setHeldUntil(new Date(res.heldUntil).getTime())
         setStep('form')
       } catch (err) {
-        if (cancelled) return
+        if (err instanceof DOMException && err.name === 'AbortError') return
         if (err instanceof ApiRequestError && err.status === 409) {
           onSlotLost(bucket)
           return
@@ -523,7 +533,7 @@ function BookingDialog({
     }
     void hold()
     return () => {
-      cancelled = true
+      controller.abort()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
