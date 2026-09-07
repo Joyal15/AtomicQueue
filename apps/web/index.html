@@ -15,20 +15,13 @@
       rel="stylesheet"
     />
     <title>AtomicQueue</title>
-    <script>
-      // Applied before first paint so there's no light->dark flash.
-      // Kept in sync with lib/theme.ts's storage key/values.
-      (function () {
-        try {
-          var stored = localStorage.getItem('atomicqueue.theme')
-          var dark =
-            stored === 'dark' ||
-            (stored !== 'light' &&
-              window.matchMedia('(prefers-color-scheme: dark)').matches)
-          document.documentElement.classList.toggle('dark', dark)
-        } catch (e) {}
-      })()
-    </script>
+    <!--
+      Pre-paint theme init. External (not inline) so it runs under a
+      strict `script-src 'self'` CSP with no 'unsafe-inline'/hash/nonce.
+      Parser-blocking + ahead of the stylesheet, so it still applies the
+      theme class before first paint (no light->dark flash).
+    -->
+    <script src="/theme-init.js"></script>
   </head>
   <body>
     <div id="root"></div>

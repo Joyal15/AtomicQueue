@@ -6,8 +6,9 @@ const STORAGE_KEY = 'atomicqueue.theme'
 
 function getInitialTheme(): Theme {
   if (typeof document === 'undefined') return 'light'
-  // The inline script in index.html already applied the right class
-  // before paint — just read it back so React's state agrees.
+  // The pre-paint script (public/theme-init.js, loaded from index.html)
+  // already applied the right class before paint — just read it back so
+  // React's state agrees.
   return document.documentElement.classList.contains('dark') ? 'dark' : 'light'
 }
 
@@ -23,7 +24,7 @@ function applyTheme(theme: Theme) {
 /**
  * Wraps the app so any page can read/toggle the theme. Persists to
  * localStorage; falls back to the OS preference on first visit (see
- * the pre-paint script in index.html, which this reads back on mount).
+ * public/theme-init.js, the pre-paint script this reads back on mount).
  */
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>(getInitialTheme)

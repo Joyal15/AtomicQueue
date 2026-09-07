@@ -52,3 +52,22 @@ if (
   );
   process.exit(1);
 }
+
+/**
+ * The console-log email fallback (notifications.service.ts's
+ * `DevelopmentEmailSender`) prints the message body — which includes the
+ * raw magic-link token for a booking-management link — to stdout. That's
+ * fine for local dev, but in production it would write customer access
+ * tokens into the log stream and silently send no real email. Require a
+ * real provider there.
+ */
+if (
+  env.NODE_ENV === "production" &&
+  !(env.RESEND_API_KEY && env.RESEND_FROM_EMAIL)
+) {
+  console.error(
+    "RESEND_API_KEY and RESEND_FROM_EMAIL must both be set in production — " +
+      "the dev console-log email fallback would expose magic-link tokens in logs.",
+  );
+  process.exit(1);
+}
