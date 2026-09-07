@@ -231,6 +231,26 @@ export async function reactivateService(
 }
 
 /**
+ * Active-service count keyed by `businessId`, across every tenant.
+ *
+ * The one read the public business directory (`GET /api/businesses`)
+ * needs: to show "N services" on a card and to hide businesses with
+ * nothing bookable. Deliberately not business-scoped — it's the only
+ * caller and it wants every tenant at once, same shape/rationale as the
+ * tenants module's `listBusinessIds` (used by the slot-generation job).
+ */
+export async function getActiveServiceCountByBusiness(): Promise<
+  Map<string, number>
+> {
+  const rows = await ServiceModel.aggregate<{ _id: string; count: number }>([
+    { $match: { isActive: true } },
+    { $group: { _id: '$businessId', count: { $sum: 1 } } },
+  ]);
+
+  return new Map(rows.map((row) => [row._id, row.count]));
+}
+
+/**
  * Gets one service by ID, scoped to a business. Returns null if not found.
  */
 export async function getServiceById(

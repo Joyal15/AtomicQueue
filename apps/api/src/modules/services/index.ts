@@ -10,6 +10,7 @@ export {
   createService,
   getServices,
   getServiceById,
+  getActiveServiceCountByBusiness,
   updateService,
   deactivateService,
   reactivateService,

@@ -101,9 +101,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // expected (e.g. the bootstrap probe, a failed login) and ignored.
   useEffect(() => {
     return onUnauthorized(() => {
-      generationRef.current += 1
       setState((prev) => {
+        // A 401 while not authenticated is expected (the mount-time
+        // bootstrap probe on a public/logged-out visit, a failed login).
+        // Do nothing — and crucially don't bump the generation, or the
+        // bootstrap fetch's own 401 handler would treat itself as stale
+        // and never resolve `loading` → `unauthenticated`.
         if (prev.status !== 'authenticated') return prev
+        generationRef.current += 1
         writeCachedUser(null)
         return { status: 'unauthenticated', user: null, business: null }
       })

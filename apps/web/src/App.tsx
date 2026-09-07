@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 
 import { useAuth } from '@/lib/use-auth'
 import { LandingPage } from '@/features/marketing/LandingPage'
+import { BusinessDirectoryPage } from '@/features/marketing/BusinessDirectoryPage'
 import { LoginPage } from '@/features/auth/LoginPage'
 import { SignupPage } from '@/features/auth/SignupPage'
 import { AcceptInvitePage } from '@/features/auth/AcceptInvitePage'
@@ -26,6 +27,7 @@ function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/signup" element={<SignupPage />} />
       <Route path="/accept" element={<AcceptInvitePage />} />
+      <Route path="/businesses" element={<BusinessDirectoryPage />} />
       <Route path="/b/:slug" element={<PublicBookingPage />} />
       <Route path="/manage" element={<MagicLinkManagePage />} />
 

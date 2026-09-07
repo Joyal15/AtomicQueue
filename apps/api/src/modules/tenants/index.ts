@@ -16,9 +16,11 @@ export {
   createBusiness,
   getBusinessById,
   getBusinessBySlug,
+  listBusinesses,
   listBusinessIds,
   updateBusiness,
   type CreateBusinessInput,
+  type PublicBusinessListItem,
   type UpdateBusinessInput,
 } from './tenants.service.js';
 

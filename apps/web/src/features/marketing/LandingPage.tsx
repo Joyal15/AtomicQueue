@@ -48,9 +48,9 @@ const features = [
 
 export function LandingPage() {
   const { status } = useAuth()
-  const primaryTo = status === 'authenticated' ? '/dashboard' : '/signup'
-  const primaryLabel =
-    status === 'authenticated' ? 'Go to dashboard' : 'Create your business'
+  const isAuthed = status === 'authenticated'
+  const businessTo = isAuthed ? '/dashboard' : '/signup'
+  const businessLabel = isAuthed ? 'Go to dashboard' : 'Create your business'
 
   return (
     <div className="min-h-screen bg-hero-grid">
@@ -86,18 +86,44 @@ export function LandingPage() {
             <span className="whitespace-nowrap text-primary"> double-books</span>.
           </h1>
           <p className="mx-auto mt-5 max-w-2xl text-lg text-muted-foreground">
-            AtomicQueue gives small businesses a real-time booking page with
-            atomic holds, an automatic waitlist, and a clean reschedule /
-            cancel flow — built on the same conditional-write discipline a
-            payments system would use.
+            A real-time booking page with atomic holds, an automatic waitlist,
+            and a clean reschedule / cancel flow — built on the same
+            conditional-write discipline a payments system would use.
           </p>
-          <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <Button asChild size="xl">
-              <Link to={primaryTo}>{primaryLabel}</Link>
-            </Button>
-            <Button asChild size="xl" variant="outline">
-              <Link to="/login">I already have an account</Link>
-            </Button>
+
+          <div className="mx-auto mt-10 grid max-w-2xl gap-4 text-left sm:grid-cols-2">
+            <div className="flex flex-col rounded-xl border border-border bg-card p-6 shadow-xs">
+              <h2 className="text-sm font-semibold text-foreground">
+                Booking an appointment?
+              </h2>
+              <p className="mt-1.5 flex-1 text-sm text-muted-foreground">
+                Find a business and book an available time. No account, no
+                sign-up.
+              </p>
+              <Button asChild size="lg" className="mt-4 w-full">
+                <Link to="/businesses">Find a business</Link>
+              </Button>
+            </div>
+
+            <div className="flex flex-col rounded-xl border border-border bg-card p-6 shadow-xs">
+              <h2 className="text-sm font-semibold text-foreground">
+                Running a business?
+              </h2>
+              <p className="mt-1.5 flex-1 text-sm text-muted-foreground">
+                Manage your appointments, staff and availability in one
+                dashboard.
+              </p>
+              <div className="mt-4 flex flex-col gap-2">
+                <Button asChild size="lg" variant="outline" className="w-full">
+                  <Link to={businessTo}>{businessLabel}</Link>
+                </Button>
+                {!isAuthed && (
+                  <Button asChild variant="ghost" size="sm" className="w-full">
+                    <Link to="/login">Staff login</Link>
+                  </Button>
+                )}
+              </div>
+            </div>
           </div>
         </section>
 

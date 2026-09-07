@@ -107,6 +107,47 @@ export async function listBusinessIds(): Promise<string[]> {
   return businesses.map((business) => String(business._id));
 }
 
+export interface PublicBusinessListItem {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+/**
+ * Public directory listing for the unauthenticated `/businesses`
+ * discovery page — every business, name + slug only.
+ *
+ * `query` is an optional case-insensitive substring match on the
+ * business name, treated as a literal (regex metacharacters escaped),
+ * capped at 100 results. This is the only cross-tenant read in this
+ * module besides `listBusinessIds` (the slot-generation job); like that
+ * one it returns a deliberately minimal projection — never a full
+ * business document, never `ownerId` or any other non-public field.
+ */
+export async function listBusinesses(
+  query?: string,
+): Promise<PublicBusinessListItem[]> {
+  const filter: Record<string, unknown> = {};
+  const trimmed = query?.trim();
+
+  if (trimmed) {
+    const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    filter.name = { $regex: escaped, $options: 'i' };
+  }
+
+  const businesses = await BusinessModel.find(filter)
+    .select({ _id: 1, name: 1, slug: 1 })
+    .sort({ name: 1 })
+    .limit(100)
+    .lean();
+
+  return businesses.map((business) => ({
+    id: String(business._id),
+    name: business.name,
+    slug: business.slug,
+  }));
+}
+
 /**
  * Returns one business by its public slug — how an anonymous caller
  * (the public booking page) looks a business up, since it never has
