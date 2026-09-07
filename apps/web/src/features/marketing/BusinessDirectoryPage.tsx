@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, Search, Store } from 'lucide-react'
+import { ArrowLeft, ChevronRight, Search, Store } from 'lucide-react'
 
 import { apiFetchEnvelope, ApiRequestError } from '@/lib/api'
+import { formatPrice } from '@/lib/format'
 import { Wordmark } from '@/components/brand'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { Alert } from '@/components/ui/alert'
@@ -19,6 +20,10 @@ interface PublicBusinessSummary {
   name: string
   slug: string
   serviceCount: number
+  /** Up to five active service names, cheapest first — for preview chips. */
+  services: string[]
+  /** Lowest active-service price, or null if the business has none priced. */
+  priceFrom: number | null
 }
 
 interface DirectoryPagination {
@@ -202,8 +207,8 @@ export function BusinessDirectoryPage() {
             Find a business
           </h1>
           <p className="mt-1.5 text-sm text-muted-foreground">
-            Browse businesses taking bookings, then pick a time. No account
-            needed.
+            Browse businesses taking online bookings. Open one to see live
+            availability and book a time — no account, no app.
           </p>
         </div>
 
@@ -227,7 +232,7 @@ export function BusinessDirectoryPage() {
             <ul className="space-y-3">
               {Array.from({ length: 5 }).map((_, index) => (
                 <li key={index} aria-hidden="true">
-                  <Skeleton className="h-[4.75rem] w-full rounded-lg" />
+                  <Skeleton className="h-28 w-full rounded-lg" />
                 </li>
               ))}
             </ul>
@@ -258,60 +263,94 @@ export function BusinessDirectoryPage() {
             />
           ) : (
             <>
+              <p
+                className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground"
+                aria-live="polite"
+              >
+                {debouncedQuery
+                  ? `${items.length}${state.hasMore ? '+' : ''} result${items.length === 1 ? '' : 's'} for “${debouncedQuery}”`
+                  : `${items.length}${state.hasMore ? '+' : ''} ${items.length === 1 ? 'business' : 'businesses'} taking bookings`}
+              </p>
               <ul className="space-y-3">
-                {items.map((business) => (
-                  <li key={business.id}>
-                    <Link
-                      to={`/b/${business.slug}`}
-                      className="group flex items-center justify-between gap-4 rounded-lg border border-border bg-card px-5 py-4 shadow-xs transition-colors hover:border-primary/40 hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate font-semibold text-foreground">
-                          {business.name}
-                        </p>
-                        <p className="mt-0.5 text-sm text-muted-foreground">
-                          {business.serviceCount}{' '}
-                          {business.serviceCount === 1 ? 'service' : 'services'}
-                        </p>
-                      </div>
-                      <span className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-primary">
-                        Book
-                        <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
-                      </span>
-                    </Link>
-                  </li>
-                ))}
+                {items.map((business) => {
+                  const extraServices =
+                    business.serviceCount - business.services.length
+                  return (
+                    <li key={business.id}>
+                      <Link
+                        to={`/b/${business.slug}`}
+                        className="group flex items-start gap-4 rounded-lg border border-border bg-card p-4 shadow-xs transition-colors hover:border-primary/40 hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:p-5"
+                      >
+                        <span
+                          aria-hidden="true"
+                          className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-lg font-semibold text-primary"
+                        >
+                          {business.name.charAt(0).toUpperCase()}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate font-semibold text-foreground">
+                            {business.name}
+                          </p>
+                          <p className="mt-0.5 text-sm text-muted-foreground">
+                            {business.serviceCount}{' '}
+                            {business.serviceCount === 1 ? 'service' : 'services'}
+                            {business.priceFrom != null && (
+                              <> · from {formatPrice(business.priceFrom)}</>
+                            )}
+                          </p>
+                          {business.services.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {business.services.map((name) => (
+                                <span
+                                  key={name}
+                                  className="rounded-full border border-border bg-secondary/40 px-2 py-0.5 text-xs text-muted-foreground"
+                                >
+                                  {name}
+                                </span>
+                              ))}
+                              {extraServices > 0 && (
+                                <span className="px-1 py-0.5 text-xs text-muted-foreground">
+                                  +{extraServices} more
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <ChevronRight
+                          className="size-5 shrink-0 self-center text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary"
+                          aria-hidden="true"
+                        />
+                      </Link>
+                    </li>
+                  )
+                })}
               </ul>
 
-              <div className="mt-4 text-center text-sm" aria-live="polite">
-                {state.loadMoreError && (
-                  <Alert variant="destructive" className="mb-3 text-left">
-                    {state.loadMoreError}
-                  </Alert>
-                )}
-                {state.hasMore ? (
-                  <Button
-                    variant="outline"
-                    onClick={loadMore}
-                    disabled={state.loadingMore}
-                  >
-                    {state.loadingMore ? (
-                      <>
-                        <Spinner />
-                        Loading…
-                      </>
-                    ) : (
-                      'Load more'
-                    )}
-                  </Button>
-                ) : (
-                  <p className="text-muted-foreground">
-                    {debouncedQuery
-                      ? `All ${items.length} result${items.length === 1 ? '' : 's'} shown.`
-                      : `Showing all ${items.length} business${items.length === 1 ? '' : 'es'}.`}
-                  </p>
-                )}
-              </div>
+              {(state.hasMore || state.loadMoreError) && (
+                <div className="mt-4 text-center text-sm" aria-live="polite">
+                  {state.loadMoreError && (
+                    <Alert variant="destructive" className="mb-3 text-left">
+                      {state.loadMoreError}
+                    </Alert>
+                  )}
+                  {state.hasMore && (
+                    <Button
+                      variant="outline"
+                      onClick={loadMore}
+                      disabled={state.loadingMore}
+                    >
+                      {state.loadingMore ? (
+                        <>
+                          <Spinner />
+                          Loading…
+                        </>
+                      ) : (
+                        'Load more'
+                      )}
+                    </Button>
+                  )}
+                </div>
+              )}
             </>
           )}
         </div>

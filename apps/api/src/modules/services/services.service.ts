@@ -231,23 +231,56 @@ export async function reactivateService(
 }
 
 /**
- * Active-service count keyed by `businessId`, across every tenant.
+ * Per-business summary of a tenant's active services — count, the
+ * service names, and the lowest price — keyed by `businessId`, across
+ * every tenant.
  *
  * The one read the public business directory (`GET /api/businesses`)
- * needs: to show "N services" on a card and to hide businesses with
- * nothing bookable. Deliberately not business-scoped — it's the only
- * caller and it wants every tenant at once, same shape/rationale as the
- * tenants module's `listBusinessIds` (used by the slot-generation job).
+ * needs: to show "N services", a few service-name chips and a "from $X"
+ * on a card, and to hide businesses with nothing bookable (only tenants
+ * with >= 1 active service get a map entry). Deliberately not
+ * business-scoped — it's the only caller and it wants every tenant at
+ * once, same shape/rationale as the tenants module's `listBusinessIds`
+ * (used by the slot-generation job).
+ *
+ * Every field here is already public per-service data (the same names
+ * and prices `GET /api/businesses/:slug/services` returns); this is a
+ * cross-tenant roll-up of it, not a new disclosure.
  */
-export async function getActiveServiceCountByBusiness(): Promise<
-  Map<string, number>
+export interface ActiveServiceSummary {
+  count: number;
+  /** Active service names, cheapest first (caller trims for display). */
+  names: string[];
+  /** Lowest active-service price for the business. */
+  priceFrom: number;
+}
+
+export async function getActiveServiceSummaryByBusiness(): Promise<
+  Map<string, ActiveServiceSummary>
 > {
-  const rows = await ServiceModel.aggregate<{ _id: string; count: number }>([
+  const rows = await ServiceModel.aggregate<
+    { _id: string } & ActiveServiceSummary
+  >([
     { $match: { isActive: true } },
-    { $group: { _id: '$businessId', count: { $sum: 1 } } },
+    // Cheapest-first, then name — so `names` reads sensibly next to
+    // `priceFrom` and the order is deterministic across requests.
+    { $sort: { price: 1, name: 1 } },
+    {
+      $group: {
+        _id: '$businessId',
+        count: { $sum: 1 },
+        names: { $push: '$name' },
+        priceFrom: { $min: '$price' },
+      },
+    },
   ]);
 
-  return new Map(rows.map((row) => [row._id, row.count]));
+  return new Map(
+    rows.map((row) => [
+      row._id,
+      { count: row.count, names: row.names, priceFrom: row.priceFrom },
+    ]),
+  );
 }
 
 /**

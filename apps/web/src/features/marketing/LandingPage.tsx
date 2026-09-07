@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import {
+  ArrowRight,
   CalendarClock,
   Lock,
   Radio,
@@ -58,19 +59,14 @@ export function LandingPage() {
         <Wordmark />
         <nav className="flex items-center gap-2">
           <ThemeToggle />
-          {status === 'authenticated' ? (
+          {isAuthed ? (
             <Button asChild size="sm">
               <Link to="/dashboard">Dashboard</Link>
             </Button>
           ) : (
-            <>
-              <Button asChild variant="ghost" size="sm">
-                <Link to="/login">Log in</Link>
-              </Button>
-              <Button asChild size="sm">
-                <Link to="/signup">Sign up</Link>
-              </Button>
-            </>
+            <Button asChild variant="ghost" size="sm">
+              <Link to="/login">Business log in</Link>
+            </Button>
           )}
         </nav>
       </header>
@@ -79,51 +75,47 @@ export function LandingPage() {
         <section className="mx-auto max-w-3xl px-6 pb-14 pt-16 text-center sm:pt-24">
           <span className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground shadow-xs">
             <span className="size-1.5 rounded-full bg-success" />
-            Concurrency-safe booking engine
+            Live availability, updated as you watch
           </span>
           <h1 className="mt-6 text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
-            Appointment booking that never
-            <span className="whitespace-nowrap text-primary"> double-books</span>.
+            Book an appointment in
+            <span className="whitespace-nowrap text-primary"> under a minute</span>.
           </h1>
-          <p className="mx-auto mt-5 max-w-2xl text-lg text-muted-foreground">
-            A real-time booking page with atomic holds, an automatic waitlist,
-            and a clean reschedule / cancel flow — built on the same
-            conditional-write discipline a payments system would use.
+          <p className="mx-auto mt-5 max-w-xl text-lg text-muted-foreground">
+            Find a business, pick an open time, and confirm with just your name
+            and a way to reach you. No account, no app — and the slot is held
+            for you while you fill it in.
           </p>
 
-          <div className="mx-auto mt-10 grid max-w-2xl gap-4 text-left sm:grid-cols-2">
-            <div className="flex flex-col rounded-xl border border-border bg-card p-6 shadow-xs">
-              <h2 className="text-sm font-semibold text-foreground">
-                Booking an appointment?
-              </h2>
-              <p className="mt-1.5 flex-1 text-sm text-muted-foreground">
-                Find a business and book an available time. No account, no
-                sign-up.
-              </p>
-              <Button asChild size="lg" className="mt-4 w-full">
-                <Link to="/businesses">Find a business</Link>
-              </Button>
-            </div>
+          <div className="mx-auto mt-10 flex max-w-md flex-col items-center gap-3">
+            <Button asChild size="xl" className="w-full">
+              <Link to="/businesses">
+                Find a business
+                <ArrowRight />
+              </Link>
+            </Button>
+            <p className="text-sm text-muted-foreground">
+              Already have a booking?{' '}
+              <Link
+                to="/manage"
+                className="font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                Manage or reschedule it
+              </Link>
+            </p>
+          </div>
 
-            <div className="flex flex-col rounded-xl border border-border bg-card p-6 shadow-xs">
-              <h2 className="text-sm font-semibold text-foreground">
-                Running a business?
-              </h2>
-              <p className="mt-1.5 flex-1 text-sm text-muted-foreground">
-                Manage your appointments, staff and availability in one
-                dashboard.
-              </p>
-              <div className="mt-4 flex flex-col gap-2">
-                <Button asChild size="lg" variant="outline" className="w-full">
-                  <Link to={businessTo}>{businessLabel}</Link>
-                </Button>
-                {!isAuthed && (
-                  <Button asChild variant="ghost" size="sm" className="w-full">
-                    <Link to="/login">Staff login</Link>
-                  </Button>
-                )}
-              </div>
-            </div>
+          <div className="mx-auto mt-12 max-w-md border-t border-border/70 pt-6">
+            <p className="text-sm text-muted-foreground">
+              Running a business?{' '}
+              <Link
+                to={businessTo}
+                className="font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {businessLabel}
+              </Link>{' '}
+              to manage appointments, staff and availability.
+            </p>
           </div>
         </section>
 
@@ -131,10 +123,10 @@ export function LandingPage() {
           <div className="grid gap-8 border-t border-border pt-14 md:grid-cols-[16rem_1fr] md:gap-12">
             <div>
               <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-                What's different
+                Why book here
               </p>
               <h2 className="mt-3 text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
-                Built with the discipline a payments system would use.
+                The time you pick is the time you get.
               </h2>
             </div>
 

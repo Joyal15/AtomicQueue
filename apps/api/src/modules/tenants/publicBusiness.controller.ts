@@ -10,12 +10,13 @@
  *                                  `publicCatalog`, `waitlist` join)
  *                                  needs it resolved to a businessId.
  *
- * Both return an explicit projection — id, name, slug (+ serviceCount on
- * the list) — never a raw document, never `ownerId` or any auth field.
+ * Both return an explicit projection — id, name, slug (+ serviceCount,
+ * a service-name preview and priceFrom on the list) — never a raw
+ * document, never `ownerId` or any auth field.
  */
 
 import { asyncHandler } from '../../lib/asyncHandler.js';
-import { getActiveServiceCountByBusiness } from '../services/index.js';
+import { getActiveServiceSummaryByBusiness } from '../services/index.js';
 
 import {
   getBusinessBySlug,
@@ -87,8 +88,10 @@ function firstQueryValue(value: unknown): string | undefined {
  * response's `pagination.nextCursor`). An invalid `limit` or `cursor` is
  * a `400 VALIDATION_ERROR`.
  *
- * Response: `{ data: [{ id, name, slug, serviceCount }],
- *              pagination: { nextCursor: string | null, hasMore: boolean } }`.
+ * Response: `{ data: [{ id, name, slug, serviceCount, services, priceFrom }],
+ *              pagination: { nextCursor: string | null, hasMore: boolean } }`
+ * where `services` is up to five active service names (cheapest first)
+ * and `priceFrom` is the lowest active-service price (`null` if none).
  * Only businesses with at least one active service are listed.
  */
 export const getPublicBusinesses = asyncHandler(async (req, res) => {
@@ -132,22 +135,29 @@ export const getPublicBusinesses = asyncHandler(async (req, res) => {
   const q = firstQueryValue(req.query.q)?.slice(0, 100);
 
   // ── page ───────────────────────────────────────────────────────────
-  const activeServiceCounts = await getActiveServiceCountByBusiness();
+  const serviceSummaries = await getActiveServiceSummaryByBusiness();
 
   const { items, hasMore, nextKey } = await listBusinessesPage({
     query: q,
     limit,
     cursor,
-    includeIds: [...activeServiceCounts.keys()],
+    includeIds: [...serviceSummaries.keys()],
   });
 
+  const SERVICE_PREVIEW_LIMIT = 5;
+
   res.status(200).json({
-    data: items.map((business) => ({
-      id: business.id,
-      name: business.name,
-      slug: business.slug,
-      serviceCount: activeServiceCounts.get(business.id) ?? 0,
-    })),
+    data: items.map((business) => {
+      const summary = serviceSummaries.get(business.id);
+      return {
+        id: business.id,
+        name: business.name,
+        slug: business.slug,
+        serviceCount: summary?.count ?? 0,
+        services: summary?.names.slice(0, SERVICE_PREVIEW_LIMIT) ?? [],
+        priceFrom: summary?.priceFrom ?? null,
+      };
+    }),
     pagination: {
       nextCursor: nextKey ? encodeCursor(nextKey) : null,
       hasMore,

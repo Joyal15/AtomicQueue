@@ -192,6 +192,9 @@ export function PublicBookingPage() {
           <p className="mt-1 text-sm text-muted-foreground">
             Double-check the link — this booking page doesn't exist.
           </p>
+          <Button asChild variant="outline" size="sm" className="mt-4">
+            <Link to="/businesses">Browse businesses</Link>
+          </Button>
         </div>
       </div>
     )
@@ -222,7 +225,7 @@ export function PublicBookingPage() {
           )}
           <p className="mt-1.5 text-sm text-muted-foreground">
             Pick a service and a time — we'll hold it for 5 minutes while you
-            confirm.
+            confirm. No account needed.
           </p>
         </div>
 
