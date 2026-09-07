@@ -1,14 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, ArrowRight, Search, Store } from 'lucide-react'
 
-import { apiFetch, ApiRequestError } from '@/lib/api'
+import { apiFetchEnvelope, ApiRequestError } from '@/lib/api'
 import { Wordmark } from '@/components/brand'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { Alert } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Spinner } from '@/components/ui/spinner'
+
+const PAGE_SIZE = 20
 
 interface PublicBusinessSummary {
   id: string
@@ -17,24 +21,71 @@ interface PublicBusinessSummary {
   serviceCount: number
 }
 
-/** A settled fetch result, tagged with the query it belongs to. */
-interface DirectoryResult {
+interface DirectoryPagination {
+  nextCursor: string | null
+  hasMore: boolean
+}
+
+interface DirectoryResponse {
+  data: PublicBusinessSummary[]
+  pagination: DirectoryPagination
+}
+
+interface DirectoryState {
+  /** Which debounced query this state reflects. */
   query: string
-  /** `null` means this query errored (message in `errorMsg`). */
-  items: PublicBusinessSummary[] | null
+  items: PublicBusinessSummary[]
+  nextCursor: string | null
+  hasMore: boolean
+  firstPageStatus: 'loading' | 'ready' | 'error'
+  firstPageError: string | null
+  loadingMore: boolean
+  loadMoreError: string | null
+}
+
+const INITIAL_STATE: DirectoryState = {
+  query: '',
+  items: [],
+  nextCursor: null,
+  hasMore: false,
+  firstPageStatus: 'loading',
+  firstPageError: null,
+  loadingMore: false,
+  loadMoreError: null,
+}
+
+function messageFor(err: unknown): string {
+  return err instanceof ApiRequestError
+    ? err.message
+    : 'Could not load businesses. Please try again.'
+}
+
+function fetchDirectoryPage(params: {
+  q: string
+  cursor: string | null
+}): Promise<DirectoryResponse> {
+  const qs = new URLSearchParams({ limit: String(PAGE_SIZE) })
+  if (params.q) qs.set('q', params.q)
+  if (params.cursor) qs.set('cursor', params.cursor)
+  return apiFetchEnvelope<DirectoryResponse>(`/businesses?${qs.toString()}`)
 }
 
 /**
  * Public, unauthenticated business directory — `/businesses`. The
  * customer half of the landing page's two-audience split: browse
- * businesses taking bookings, then open one's existing public booking
- * page (`/b/:slug`). No account, no slug to type by hand.
+ * businesses taking bookings (cursor-paginated, "Load more"), then open
+ * one's existing public booking page (`/b/:slug`). No account, no slug
+ * to type by hand.
  */
 export function BusinessDirectoryPage() {
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
-  const [result, setResult] = useState<DirectoryResult | null>(null)
-  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [reloadNonce, setReloadNonce] = useState(0)
+  const [state, setState] = useState<DirectoryState>(INITIAL_STATE)
+
+  // Guards a "Load more" against a double-click / re-entry while a page
+  // is already in flight. A ref, not state — it must update synchronously.
+  const loadMoreLock = useRef(false)
 
   // Debounce so typing doesn't fire a request per keystroke.
   useEffect(() => {
@@ -42,38 +93,89 @@ export function BusinessDirectoryPage() {
     return () => clearTimeout(timer)
   }, [query])
 
-  // Fetch whenever the debounced query changes. All state updates happen
-  // in the promise callbacks (never synchronously in the effect body).
+  // First page: refetch from scratch whenever the query (or a retry)
+  // changes. All state updates happen in the promise callbacks — never
+  // synchronously in the effect body.
   useEffect(() => {
     let cancelled = false
-    const qs = debouncedQuery ? `?q=${encodeURIComponent(debouncedQuery)}` : ''
+    loadMoreLock.current = false
 
-    apiFetch<PublicBusinessSummary[]>(`/businesses${qs}`)
-      .then((items) => {
+    fetchDirectoryPage({ q: debouncedQuery, cursor: null })
+      .then((res) => {
         if (cancelled) return
-        setResult({ query: debouncedQuery, items })
-        setErrorMsg(null)
+        setState({
+          query: debouncedQuery,
+          items: res.data,
+          nextCursor: res.pagination.nextCursor,
+          hasMore: res.pagination.hasMore,
+          firstPageStatus: 'ready',
+          firstPageError: null,
+          loadingMore: false,
+          loadMoreError: null,
+        })
       })
       .catch((err) => {
         if (cancelled) return
-        setResult({ query: debouncedQuery, items: null })
-        setErrorMsg(
-          err instanceof ApiRequestError
-            ? err.message
-            : 'Could not load businesses. Please try again.',
-        )
+        setState({
+          query: debouncedQuery,
+          items: [],
+          nextCursor: null,
+          hasMore: false,
+          firstPageStatus: 'error',
+          firstPageError: messageFor(err),
+          loadingMore: false,
+          loadMoreError: null,
+        })
       })
 
     return () => {
       cancelled = true
     }
-  }, [debouncedQuery])
+  }, [debouncedQuery, reloadNonce])
 
-  // Derived, not stored: loading is simply "no settled result for the
-  // query we're currently showing".
-  const settled = result?.query === debouncedQuery
-  const businesses = settled ? result?.items ?? null : null
-  const loading = !settled
+  function loadMore() {
+    if (loadMoreLock.current) return
+    if (state.query !== debouncedQuery) return
+    if (!state.hasMore || !state.nextCursor) return
+
+    loadMoreLock.current = true
+    const cursor = state.nextCursor
+    setState((s) => ({ ...s, loadingMore: true, loadMoreError: null }))
+
+    fetchDirectoryPage({ q: debouncedQuery, cursor })
+      .then((res) => {
+        setState((s) => {
+          if (s.query !== debouncedQuery) return s // query changed mid-flight
+          const seen = new Set(s.items.map((b) => b.id))
+          const fresh = res.data.filter((b) => !seen.has(b.id))
+          return {
+            ...s,
+            items: [...s.items, ...fresh],
+            nextCursor: res.pagination.nextCursor,
+            hasMore: res.pagination.hasMore,
+            loadingMore: false,
+          }
+        })
+      })
+      .catch((err) => {
+        setState((s) =>
+          s.query !== debouncedQuery
+            ? s
+            : { ...s, loadingMore: false, loadMoreError: messageFor(err) },
+        )
+      })
+      .finally(() => {
+        loadMoreLock.current = false
+      })
+  }
+
+  // The state may still describe the previous query while the new first
+  // page is in flight — treat that as loading, and don't render stale items.
+  const stale = state.query !== debouncedQuery
+  const showFirstPageSkeleton = stale || state.firstPageStatus === 'loading'
+  const showFirstPageError =
+    !stale && state.firstPageStatus === 'error'
+  const items = stale ? [] : state.items
 
   return (
     <div className="min-h-screen bg-hero-grid">
@@ -121,7 +223,7 @@ export function BusinessDirectoryPage() {
         </div>
 
         <div className="mt-6">
-          {loading ? (
+          {showFirstPageSkeleton ? (
             <ul className="space-y-3">
               {Array.from({ length: 5 }).map((_, index) => (
                 <li key={index} aria-hidden="true">
@@ -129,9 +231,20 @@ export function BusinessDirectoryPage() {
                 </li>
               ))}
             </ul>
-          ) : businesses === null ? (
-            <Alert variant="destructive">{errorMsg}</Alert>
-          ) : businesses.length === 0 ? (
+          ) : showFirstPageError ? (
+            <div>
+              <Alert variant="destructive">{state.firstPageError}</Alert>
+              <div className="mt-3">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setReloadNonce((n) => n + 1)}
+                >
+                  Try again
+                </Button>
+              </div>
+            </div>
+          ) : items.length === 0 ? (
             <EmptyState
               icon={Store}
               title={
@@ -144,30 +257,62 @@ export function BusinessDirectoryPage() {
               }
             />
           ) : (
-            <ul className="space-y-3">
-              {businesses.map((business) => (
-                <li key={business.id}>
-                  <Link
-                    to={`/b/${business.slug}`}
-                    className="group flex items-center justify-between gap-4 rounded-lg border border-border bg-card px-5 py-4 shadow-xs transition-colors hover:border-primary/40 hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            <>
+              <ul className="space-y-3">
+                {items.map((business) => (
+                  <li key={business.id}>
+                    <Link
+                      to={`/b/${business.slug}`}
+                      className="group flex items-center justify-between gap-4 rounded-lg border border-border bg-card px-5 py-4 shadow-xs transition-colors hover:border-primary/40 hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold text-foreground">
+                          {business.name}
+                        </p>
+                        <p className="mt-0.5 text-sm text-muted-foreground">
+                          {business.serviceCount}{' '}
+                          {business.serviceCount === 1 ? 'service' : 'services'}
+                        </p>
+                      </div>
+                      <span className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-primary">
+                        Book
+                        <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+
+              <div className="mt-4 text-center text-sm" aria-live="polite">
+                {state.loadMoreError && (
+                  <Alert variant="destructive" className="mb-3 text-left">
+                    {state.loadMoreError}
+                  </Alert>
+                )}
+                {state.hasMore ? (
+                  <Button
+                    variant="outline"
+                    onClick={loadMore}
+                    disabled={state.loadingMore}
                   >
-                    <div className="min-w-0">
-                      <p className="truncate font-semibold text-foreground">
-                        {business.name}
-                      </p>
-                      <p className="mt-0.5 text-sm text-muted-foreground">
-                        {business.serviceCount}{' '}
-                        {business.serviceCount === 1 ? 'service' : 'services'}
-                      </p>
-                    </div>
-                    <span className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-primary">
-                      Book
-                      <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
+                    {state.loadingMore ? (
+                      <>
+                        <Spinner />
+                        Loading…
+                      </>
+                    ) : (
+                      'Load more'
+                    )}
+                  </Button>
+                ) : (
+                  <p className="text-muted-foreground">
+                    {debouncedQuery
+                      ? `All ${items.length} result${items.length === 1 ? '' : 's'} shown.`
+                      : `Showing all ${items.length} business${items.length === 1 ? '' : 'es'}.`}
+                  </p>
+                )}
+              </div>
+            </>
           )}
         </div>
       </div>

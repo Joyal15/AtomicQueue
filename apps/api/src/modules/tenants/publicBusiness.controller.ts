@@ -1,8 +1,8 @@
 /**
  * Public (unauthenticated) business endpoints:
  *
- *   - GET /api/businesses        — directory listing for the `/businesses`
- *                                  customer discovery page
+ *   - GET /api/businesses        — cursor-paginated directory listing for
+ *                                  the `/businesses` customer discovery page
  *   - GET /api/businesses/:slug  — single business, the one piece of
  *                                  identity a customer-facing page has
  *                                  from the URL; every other public
@@ -17,7 +17,11 @@
 import { asyncHandler } from '../../lib/asyncHandler.js';
 import { getActiveServiceCountByBusiness } from '../services/index.js';
 
-import { getBusinessBySlug, listBusinesses } from './tenants.service.js';
+import {
+  getBusinessBySlug,
+  listBusinessesPage,
+  type BusinessCursorKey,
+} from './tenants.service.js';
 
 export const getPublicBusiness = asyncHandler<{ slug: string }>(async (req, res) => {
   const business = await getBusinessBySlug(req.params.slug);
@@ -38,29 +42,115 @@ export const getPublicBusiness = asyncHandler<{ slug: string }>(async (req, res)
   });
 });
 
+const DEFAULT_LIMIT = 20;
+const MAX_LIMIT = 50;
+const OBJECT_ID_RE = /^[a-f0-9]{24}$/i;
+
+/** base64url(JSON) of the last item's (name, id) — opaque to the client. */
+function encodeCursor(key: BusinessCursorKey): string {
+  return Buffer.from(JSON.stringify(key), 'utf8').toString('base64url');
+}
+
+function decodeCursor(raw: string): BusinessCursorKey | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
+  } catch {
+    return null;
+  }
+
+  if (
+    typeof parsed !== 'object' ||
+    parsed === null ||
+    typeof (parsed as { name?: unknown }).name !== 'string' ||
+    typeof (parsed as { id?: unknown }).id !== 'string' ||
+    !OBJECT_ID_RE.test((parsed as { id: string }).id)
+  ) {
+    return null;
+  }
+
+  const { name, id } = parsed as { name: string; id: string };
+  return { name, id };
+}
+
+function firstQueryValue(value: unknown): string | undefined {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value) && typeof value[0] === 'string') return value[0];
+  return undefined;
+}
+
 /**
- * GET /api/businesses — public customer directory. Lists businesses that
- * have at least one active service (nothing to book otherwise), each as
- * `{ id, name, slug, serviceCount }`. Optional `?q=` is a case-
- * insensitive substring match on the business name.
+ * GET /api/businesses — public, cursor-paginated customer directory.
+ *
+ * Query params (all optional): `q` (case-insensitive name substring),
+ * `limit` (integer 1..50, default 20), `cursor` (opaque, from a previous
+ * response's `pagination.nextCursor`). An invalid `limit` or `cursor` is
+ * a `400 VALIDATION_ERROR`.
+ *
+ * Response: `{ data: [{ id, name, slug, serviceCount }],
+ *              pagination: { nextCursor: string | null, hasMore: boolean } }`.
+ * Only businesses with at least one active service are listed.
  */
 export const getPublicBusinesses = asyncHandler(async (req, res) => {
-  const q =
-    typeof req.query.q === 'string' ? req.query.q.slice(0, 100) : undefined;
+  // ── page size ──────────────────────────────────────────────────────
+  let limit = DEFAULT_LIMIT;
+  const rawLimit = firstQueryValue(req.query.limit);
+  if (req.query.limit !== undefined) {
+    const n = Number(rawLimit);
+    if (!Number.isInteger(n) || n < 1 || n > MAX_LIMIT) {
+      res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: `limit must be an integer between 1 and ${MAX_LIMIT}.`,
+          fields: { limit: `must be an integer between 1 and ${MAX_LIMIT}` },
+        },
+      });
+      return;
+    }
+    limit = n;
+  }
 
-  const [businesses, activeServiceCounts] = await Promise.all([
-    listBusinesses(q),
-    getActiveServiceCountByBusiness(),
-  ]);
+  // ── cursor ─────────────────────────────────────────────────────────
+  let cursor: BusinessCursorKey | undefined;
+  if (req.query.cursor !== undefined) {
+    const rawCursor = firstQueryValue(req.query.cursor);
+    const decoded = rawCursor ? decodeCursor(rawCursor) : null;
+    if (!decoded) {
+      res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid or malformed cursor.',
+          fields: { cursor: 'invalid or malformed' },
+        },
+      });
+      return;
+    }
+    cursor = decoded;
+  }
 
-  const data = businesses
-    .map((business) => ({
+  // ── search ─────────────────────────────────────────────────────────
+  const q = firstQueryValue(req.query.q)?.slice(0, 100);
+
+  // ── page ───────────────────────────────────────────────────────────
+  const activeServiceCounts = await getActiveServiceCountByBusiness();
+
+  const { items, hasMore, nextKey } = await listBusinessesPage({
+    query: q,
+    limit,
+    cursor,
+    includeIds: [...activeServiceCounts.keys()],
+  });
+
+  res.status(200).json({
+    data: items.map((business) => ({
       id: business.id,
       name: business.name,
       slug: business.slug,
       serviceCount: activeServiceCounts.get(business.id) ?? 0,
-    }))
-    .filter((business) => business.serviceCount > 0);
-
-  res.status(200).json({ data });
+    })),
+    pagination: {
+      nextCursor: nextKey ? encodeCursor(nextKey) : null,
+      hasMore,
+    },
+  });
 });

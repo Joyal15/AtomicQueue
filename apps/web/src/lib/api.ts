@@ -72,10 +72,10 @@ function isApiSuccessBody<T>(body: unknown): body is ApiSuccessBody<T> {
   return typeof body === 'object' && body !== null && 'data' in body
 }
 
-export async function apiFetch<T>(
+async function apiRequest(
   path: string,
   options?: RequestInit,
-): Promise<T> {
+): Promise<ApiSuccessBody<unknown>> {
   const response = await fetch(`/api${path}`, {
     ...options,
     headers: {
@@ -97,9 +97,31 @@ export async function apiFetch<T>(
     throw new ApiRequestError(`API request failed: ${response.status}`, response.status, 'UNKNOWN_ERROR')
   }
 
-  if (!isApiSuccessBody<T>(body)) {
+  if (!isApiSuccessBody<unknown>(body)) {
     throw new ApiRequestError('Malformed API response', response.status, 'MALFORMED_RESPONSE')
   }
 
-  return body.data
+  return body
+}
+
+export async function apiFetch<T>(
+  path: string,
+  options?: RequestInit,
+): Promise<T> {
+  const body = await apiRequest(path, options)
+  return body.data as T
+}
+
+/**
+ * Like `apiFetch`, but returns the whole success envelope instead of just
+ * `data` — for the endpoints that put siblings next to it (e.g. the
+ * business directory's `pagination`). Same error / 401 handling. The
+ * caller supplies the full envelope type, e.g.
+ * `apiFetchEnvelope<{ data: Thing[]; pagination: Page }>('/things')`.
+ */
+export async function apiFetchEnvelope<T extends { data: unknown }>(
+  path: string,
+  options?: RequestInit,
+): Promise<T> {
+  return (await apiRequest(path, options)) as unknown as T
 }

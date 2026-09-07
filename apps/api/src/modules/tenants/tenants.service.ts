@@ -1,4 +1,4 @@
-import type { ClientSession } from "mongoose";
+import { Types, type ClientSession } from "mongoose";
 
 import type { Business } from "@queueless/shared-types";
 
@@ -113,39 +113,101 @@ export interface PublicBusinessListItem {
   slug: string;
 }
 
-/**
- * Public directory listing for the unauthenticated `/businesses`
- * discovery page — every business, name + slug only.
- *
- * `query` is an optional case-insensitive substring match on the
- * business name, treated as a literal (regex metacharacters escaped),
- * capped at 100 results. This is the only cross-tenant read in this
- * module besides `listBusinessIds` (the slot-generation job); like that
- * one it returns a deliberately minimal projection — never a full
- * business document, never `ownerId` or any other non-public field.
- */
-export async function listBusinesses(
-  query?: string,
-): Promise<PublicBusinessListItem[]> {
-  const filter: Record<string, unknown> = {};
-  const trimmed = query?.trim();
+/** Keyset cursor position — the (name, id) of the last item on a page. */
+export interface BusinessCursorKey {
+  name: string;
+  id: string;
+}
 
+export interface ListBusinessesPageParams {
+  /**
+   * Optional case-insensitive substring match on the business name,
+   * treated as a literal — the caller escapes regex metacharacters
+   * before passing it in.
+   */
+  query?: string;
+  /** Page size — the caller validates this is an integer in 1..50. */
+  limit: number;
+  /** Decoded/validated cursor from the previous page, if any. */
+  cursor?: BusinessCursorKey;
+  /**
+   * The businessIds eligible to appear (those with >= 1 active service).
+   * Resolved by the caller from the `services` module so this function
+   * never reaches across the module boundary.
+   */
+  includeIds: string[];
+}
+
+export interface ListBusinessesPageResult {
+  items: PublicBusinessListItem[];
+  hasMore: boolean;
+  /** (name, id) of the last returned item — the next cursor, or null when !hasMore. */
+  nextKey: BusinessCursorKey | null;
+}
+
+/**
+ * One page of the public `/businesses` directory, keyset-paginated.
+ *
+ * Ordering is a deterministic total order on `(name asc, _id asc)` — the
+ * unique `_id` tiebreak means the order is stable even when names
+ * collide, so the cursor never skips or repeats a row. No skip/offset.
+ *
+ * Returns a minimal projection only (`id`, `name`, `slug`) — never a
+ * full business document, never `ownerId`/`timezone`/`cancellationCutoffMinutes`
+ * or any other non-public field. The caller attaches `serviceCount`.
+ */
+export async function listBusinessesPage(
+  params: ListBusinessesPageParams,
+): Promise<ListBusinessesPageResult> {
+  const { query, limit, cursor, includeIds } = params;
+
+  const idObjectIds = includeIds
+    .filter((id) => Types.ObjectId.isValid(id))
+    .map((id) => new Types.ObjectId(id));
+
+  // No business has an active service → nothing to page.
+  if (idObjectIds.length === 0) {
+    return { items: [], hasMore: false, nextKey: null };
+  }
+
+  const filter: Record<string, unknown> = { _id: { $in: idObjectIds } };
+
+  const trimmed = query?.trim();
   if (trimmed) {
     const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     filter.name = { $regex: escaped, $options: 'i' };
   }
 
-  const businesses = await BusinessModel.find(filter)
+  // Keyset "seek" past the cursor, matching the (name asc, _id asc) sort:
+  // strictly-greater name, or same name with a strictly-greater _id.
+  if (cursor) {
+    filter.$or = [
+      { name: { $gt: cursor.name } },
+      { name: cursor.name, _id: { $gt: new Types.ObjectId(cursor.id) } },
+    ];
+  }
+
+  // Fetch one extra to know whether another page exists without a count.
+  const rows = await BusinessModel.find(filter)
     .select({ _id: 1, name: 1, slug: 1 })
-    .sort({ name: 1 })
-    .limit(100)
+    .sort({ name: 1, _id: 1 })
+    .limit(limit + 1)
     .lean();
 
-  return businesses.map((business) => ({
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
+
+  const items = page.map((business) => ({
     id: String(business._id),
     name: business.name,
     slug: business.slug,
   }));
+
+  const last = page.at(-1);
+  const nextKey =
+    hasMore && last ? { name: last.name, id: String(last._id) } : null;
+
+  return { items, hasMore, nextKey };
 }
 
 /**
